@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claro CENAM - Service Manager & Generador de Altas</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Top Red Accent Bar -->
+  <div class="top-red-bar"></div>
+
+  <!-- Header Banner -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="claro-logo-circle">
+        <span>Claro</span>
+      </div>
+      <div class="header-title">
+        <h1>CLARO CENAM</h1>
+        <span class="sub-title">Service Manager | Generador de Altas de Internet Corporativo</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="excel-status-badge" id="excel-badge">
+        <span class="dot"></span>
+        <span id="excel-filename">Cargando inventario...</span>
+      </div>
+      <label class="btn btn-outline" for="excel-file-input">
+        📂 Cargar Excel de IPs
+      </label>
+      <input type="file" id="excel-file-input" accept=".xlsx, .xls" style="display:none;">
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <div class="main-container">
+
+    <!-- Navigation Tabs (Matching Service Manager) -->
+    <nav class="tabs-nav">
+      <button class="tab-btn active" data-tab="tab-principal">Principal</button>
+      <button class="tab-btn" data-tab="tab-ubicacion">Ubicación</button>
+      <button class="tab-btn" data-tab="tab-servicio">Servicio</button>
+      <button class="tab-btn" data-tab="tab-equipamiento">Equipamiento</button>
+      <button class="tab-btn" data-tab="tab-medio">Medio</button>
+      <button class="tab-btn highlight-tab" data-tab="tab-generar">⚡ Generar Formato</button>
+    </nav>
+
+    <!-- TAB: PRINCIPAL -->
+    <section class="tab-content active" id="tab-principal">
+      <div class="card">
+        <div class="card-header">
+          <h3>Información General y Factibilidad del Servicio</h3>
+        </div>
+        <div class="card-body grid-2">
+          <div class="form-group col-span-2">
+            <label style="font-weight: 700; margin-bottom: 4px; color: #333;">Tipo de Servicio (Título):</label>
+            <select id="p-titulo" onchange="onServiceTypeChange(this.value)" style="font-size: 13px; font-weight: 600; padding: 7px 12px; border: 1px solid #0078D7; border-radius: 4px; background-color: #F8FBFE; color: #004085; max-width: 320px; cursor: pointer;">
+              <option value="INTERNET CORPORATIVO" selected>INTERNET</option>
+              <option value="DATOS">DATOS</option>
+              <option value="ACCESO EMPRESARIAL">ACCESO EMPRESARIAL</option>
+            </select>
+          </div>
+          <div class="form-group col-span-2">
+            <label>ID del Servicio (identificador único):</label>
+            <input type="text" id="p-id-servicio" value="99900466T" class="input-highlight">
+          </div>
+          <div class="form-group col-span-2">
+            <label>Nombre del Cliente:</label>
+            <input type="text" id="p-cliente" value="NESTLE GUATEMALA, S.A.">
+          </div>
+          <div class="form-group">
+            <label>Diseñado Por (Ingeniero):</label>
+            <input type="text" id="p-disenador" value="EDGAR CHUVAC">
+          </div>
+          <div class="form-group">
+            <label>Número de Teléfono (Diseñador):</label>
+            <input type="text" id="p-tel-disenador" value="58261994">
+          </div>
+          <div class="form-group">
+            <label>Fecha de Diseño (Calendario):</label>
+            <input type="date" id="p-fecha" style="max-width: 280px; font-weight: 600; cursor: pointer; color: #004085;">
+          </div>
+          <div class="form-group col-span-2 mt-10">
+            <label style="font-weight: 700; color: #333; display: flex; align-items: center; justify-content: space-between;">
+              <span>📋 Factibilidad:</span>
+              <span style="font-size: 11px; font-weight: normal; color: #666;">Tip: Presiona <kbd class="kbd-hint">F2</kbd> para ver o editar el texto completo</span>
+            </label>
+            
+            <div class="factibilidad-compact-box">
+              <input type="text" id="p-factibilidad-quick-paste" placeholder="Pega aquí la Factibilidad con Ctrl+V (o presiona F2 para abrir el editor)..." onpaste="handleQuickPaste(event)" onkeydown="handleQuickPasteKey(event)">
+              <div id="factibilidad-status-badge" class="fact-badge loaded">
+                <span class="badge-icon">✅</span>
+                <span class="badge-text">Factibilidad Cargada</span>
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="openFactibilidadModal()" title="Presiona F2 para ver o editar">
+                👁️ Ver / Editar (F2)
+              </button>
+            </div>
+            <textarea id="p-factibilidad-bloque" style="display: none;">TITULO:	***INTERNET CORPORATIVO***
+CONTACTO TEC:	KERVIN RODRIGUEZ TEL 39925496
+EJECUTIVO:	VICKY HERRARTE TEL 58261258
+CONSULTOR:	LUIS FERNANDO MARROQUIN / TEL: 5826-4126
+MEDIO:	FIBRA
+FACTIBILIDAD:	FACTIBLE BRINDAR SERVICIO POR MEDIO DE FIBRA DESDE CENTRAL EL CARMEN, USAR RUTA Y CENTRAL DIFENERENTE DEL ID 99900465T
+EQUIPO:	CISCO C921
+VELOCIDAD:	300 MBPS
+IPS:	1
+DIRECCION	48 CALLE 15-74, ZONA 12, GUATEMALA CITY, // COORDENADAS: 14.566537730922489, - 90.55268456883014
+OBSERVACIONES:	ALTA DE IC</textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: UBICACIÓN -->
+    <section class="tab-content" id="tab-ubicacion">
+      <div class="card">
+        <div class="card-header">
+          <h3>Ubicación y Coordenadas del Cliente</h3>
+        </div>
+        <div class="card-body">
+          <div class="form-group">
+            <label>Dirección Física de Instalación:</label>
+            <input type="text" id="u-direccion" value="48 CALLE 15-74, ZONA 12, GUATEMALA CITY">
+          </div>
+          <div class="form-group">
+            <label>Coordenadas GPS (Latitud, Longitud):</label>
+            <div class="input-with-button">
+              <input type="text" id="u-coordenadas" value="14.566537730922489, -90.55268456883014">
+              <button class="btn btn-secondary" onclick="openMaps()">Ver en Google Maps</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: SERVICIO -->
+    <section class="tab-content" id="tab-servicio">
+      <div class="card">
+        <div class="card-header">
+          <h3>Especificaciones Técnicas del Servicio</h3>
+        </div>
+        <div class="card-body grid-2">
+          <div class="form-group">
+            <label>Medio de Transmisión:</label>
+            <select id="s-medio">
+              <option value="FIBRA" selected>FIBRA ÓPTICA</option>
+              <option value="RADIO">RADIOENLACE</option>
+              <option value="COBRE">COBRE / HFC</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Velocidad Contratada:</label>
+            <input type="text" id="s-velocidad" value="300 MBPS">
+          </div>
+          <div class="form-group">
+            <label>Cantidad de IPs WAN asignadas:</label>
+            <input type="text" id="s-ips" value="1">
+          </div>
+          <div class="form-group">
+            <label>Equipo CPE Extremo Cliente:</label>
+            <input type="text" id="s-equipo" value="CISCO C921">
+          </div>
+          <div class="form-group col-span-2">
+            <label>Dictamen de Factibilidad:</label>
+            <textarea id="s-factibilidad" rows="2">FACTIBLE BRINDAR SERVICIO POR MEDIO DE FIBRA DESDE CENTRAL EL CARMEN, USAR RUTA Y CENTRAL DIFERENTE DEL ID 99900465T</textarea>
+          </div>
+          <div class="form-group col-span-2">
+            <label>Observaciones de Ingeniería:</label>
+            <input type="text" id="s-observaciones" value="ALTA DE IC">
+          </div>
+          <div class="form-group col-span-2">
+            <label>Servicios y Componentes Aceptados (uno por línea):</label>
+            <textarea id="s-items" rows="3">INTERNET CORPORATIVO LOCAL 300 MBS  (ACEPTADO)
+ARRENDAMIENTO EQUIPO  (ACEPTADO)
+MONITOREO ENLACE  (ACEPTADO)</textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: EQUIPAMIENTO -->
+    <section class="tab-content" id="tab-equipamiento">
+      
+      <!-- IPAM Toolbar (Asignación automática desde Excel) -->
+      <div class="ipam-toolbar">
+        <div class="ipam-title">
+          <span>🌐</span> <strong>INVENTARIO DE IPs (EXCEL)</strong>
+        </div>
+        <div class="ipam-controls">
+          <div class="ipam-field">
+            <label>Pestaña / Segmento /24:</label>
+            <select id="ipam-sheet-select" onchange="onSheetSelected()"></select>
+          </div>
+          <div class="ipam-field">
+            <label>Subred / VLAN detectada:</label>
+            <select id="ipam-block-select" onchange="onBlockSelected()"></select>
+          </div>
+          <div class="ipam-field">
+            <label>IPs Disponibles:</label>
+            <select id="ipam-free-select" onchange="onFreeIPSelected()"></select>
+          </div>
+          <div class="ipam-actions">
+            <button class="btn btn-primary" onclick="assignFirstFreeIP()">⚡ Asignar Siguiente Libre</button>
+            <button class="btn btn-success" onclick="confirmIPReservation()">💾 Reservar en Excel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Network Parameters Form (Matching Claro GUI) -->
+      <div class="card mt-15">
+        <div class="card-header">
+          <h3>Parámetros de Red y Enrutamiento (Equipamiento)</h3>
+        </div>
+        <div class="card-body grid-3">
+          <div class="form-group">
+            <label>Nombre de VRF:</label>
+            <input type="text" id="eq-vrf-name" value="INTERNET_GT_METRO">
+          </div>
+          <div class="form-group">
+            <label>Isla / Central:</label>
+            <input type="text" id="eq-isla" value="MONTE VERDE">
+          </div>
+          <div class="form-group">
+            <label>RED WAN (con máscara CIDR):</label>
+            <input type="text" id="eq-red-wan" value="10.78.138.96/27" class="input-highlight">
+          </div>
+
+          <div class="form-group">
+            <label>RD (Route Distinguisher):</label>
+            <input type="text" id="eq-rd" value="6458:11270">
+          </div>
+          <div class="form-group">
+            <label>Número de VLAN:</label>
+            <input type="text" id="eq-vlan-num" value="3740" class="input-highlight">
+          </div>
+          <div class="form-group">
+            <label>Gateway WAN:</label>
+            <input type="text" id="eq-gw-wan" value="10.78.138.97" class="input-highlight">
+          </div>
+
+          <div class="form-group">
+            <label>Desc. VLAN / VRF:</label>
+            <input type="text" id="eq-desc-vlan" value="INTERNET_PEs_METROPOLITANO_ISLA_APP">
+          </div>
+          <div class="form-group">
+            <label>IP LAN:</label>
+            <input type="text" id="eq-ip-lan" value="201.216.158.208/28 | TAREA DE LIMPIEZA T1654673">
+          </div>
+          <div class="form-group">
+            <label>IP WAN Asignada:</label>
+            <input type="text" id="eq-ip-wan" value="10.78.138.109" class="input-highlight">
+          </div>
+
+          <div class="form-group">
+            <label>IP Loopback:</label>
+            <input type="text" id="eq-loopback" value="10.212.239.51/32">
+          </div>
+          <div class="form-group">
+            <label>Pre-Shared Key (PSK):</label>
+            <div class="input-with-button">
+              <input type="text" id="eq-psk" value="dgQ3IvfatixK9m">
+              <button class="btn btn-sm btn-secondary" onclick="generateRandomPSK()">🎲 Generar</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>VRF Gestor Raisecom (VLAN / Red):</label>
+            <input type="text" id="eq-gestor-info" value="VLAN 836 | 10.40.3.0/24 | GW: 10.40.3.1 | RAISECOM: 10.40.3.120">
+          </div>
+        </div>
+      </div>
+
+      <!-- Equipment Table (Equipos Extremo Claro) -->
+      <div class="card mt-15">
+        <div class="card-header flex-between">
+          <h3>Equipos extremo Claro</h3>
+          <div class="table-actions">
+            <span class="label-info">Plantillas rápidas:</span>
+            <button class="btn btn-sm btn-outline" onclick="loadRoutePreset('carmen')">Central El Carmen</button>
+            <button class="btn btn-sm btn-outline" onclick="loadRoutePreset('monteverde')">Central Monte Verde</button>
+            <button class="btn btn-sm btn-primary" onclick="addEquipmentRow()">+ Agregar Fila</button>
+          </div>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="claro-table" id="equipment-table">
+              <thead>
+                <tr>
+                  <th style="width: 50px;">No.</th>
+                  <th style="width: 70px;">Rol</th>
+                  <th style="width: 100px;">Marca</th>
+                  <th style="width: 120px;">Modelo</th>
+                  <th>Hostname</th>
+                  <th style="width: 130px;">IP Admon.</th>
+                  <th style="width: 140px;">Int In</th>
+                  <th style="width: 200px;">Int Out</th>
+                  <th style="width: 60px;">Acción</th>
+                </tr>
+              </thead>
+              <tbody id="equipment-tbody">
+                <!-- Rows injected dynamically via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- TAB: MEDIO -->
+    <section class="tab-content" id="tab-medio">
+      <div class="card">
+        <div class="card-header">
+          <h3>Detalles de Medio Físico y Enlace Óptico</h3>
+        </div>
+        <div class="card-body grid-2">
+          <div class="form-group">
+            <label>Equipo Óptico Demarcador (Raisecom):</label>
+            <input type="text" id="m-raisecom" value="RAISECOM RAX711-L">
+          </div>
+          <div class="form-group">
+            <label>Puerto Óptico / Bandeja FO:</label>
+            <input type="text" id="m-puerto-fo" value="S15|P2 ==> FO">
+          </div>
+          <div class="form-group col-span-2">
+            <label>Observaciones de Planta Externa / Fibra:</label>
+            <textarea id="m-obs-medio" rows="3">Tendido de fibra directo desde ODF Central El Carmen. Monitoreo activado en NMIS e ISE.</textarea>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: GENERAR FORMATO -->
+    <section class="tab-content" id="tab-generar">
+      <div class="card">
+        <div class="card-header flex-between">
+          <h3>Formato Final de Alta de Internet Corporativo</h3>
+          <div class="format-actions">
+            <button class="btn btn-primary" onclick="updateGeneratedFormat()">🔄 Actualizar Vista Previa</button>
+            <button class="btn btn-success" id="btn-copy-format" onclick="copyFormatToClipboard()">📋 Copiar al Portapapeles</button>
+            <button class="btn btn-secondary" onclick="downloadFormatTxt()">📥 Descargar .TXT</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div id="copy-alert" class="copy-alert">✅ ¡Formato copiado exitosamente al portapapeles!</div>
+          <textarea id="output-format-textarea" class="format-output-box" readonly spellcheck="false"></textarea>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- MODAL FLOTANTE DE FACTIBILIDAD (ACTIVABLE CON F2) -->
+  <div id="factibilidad-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-container">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 16px;">📋</span>
+          <h3 style="margin: 0; font-size: 15px;">Texto de Factibilidad del Servicio</h3>
+          <span class="badge-f2">Atajo: F2</span>
+        </div>
+        <button type="button" class="btn-modal-close" onclick="closeFactibilidadModal()" title="Cerrar ventana">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 12px; color: #555; margin-bottom: 10px;">
+          Este bloque se inserta automáticamente abajo de <i>ALTA DE INTERNET CORPORATIVO / DATOS / ACCESO EMPRESARIAL</i>. Puedes editarlo o reemplazarlo aquí:
+        </p>
+        <textarea id="modal-factibilidad-textarea" rows="18" style="width: 100%; font-family: Consolas, monospace; font-size: 12px; line-height: 1.45; padding: 12px; border: 1px solid #BFBFBF; border-radius: 4px; resize: vertical;"></textarea>
+      </div>
+      <div class="modal-footer">
+        <span id="modal-factibilidad-info" style="font-size: 11px; color: #666;"></span>
+        <div style="display: flex; gap: 10px;">
+          <button type="button" class="btn btn-secondary" onclick="closeFactibilidadModal()">Cerrar (Esc)</button>
+          <button type="button" class="btn btn-primary" onclick="saveFactibilidadModal()">💾 Guardar y Aplicar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
