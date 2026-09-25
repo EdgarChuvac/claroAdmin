@@ -36,10 +36,10 @@ def create_sample_excel(filepath: str):
     blocks = [
         # (col_num, start_octet, end_octet, vlan_name, row_offset, clients_dict)
         (1, 0, 31, "INTERNET 3740", 1, {
-            2: "452536958T",
-            3: "253644789T",
-            4: "253658749T",
-            5: "122025745T"
+            2: "SERVICIO-DEMO-A",
+            3: "SERVICIO-DEMO-B",
+            4: "SERVICIO-DEMO-C",
+            5: "SERVICIO-DEMO-D"
         }),
         (3, 32, 63, "INTERNET 3740", 1, {}),
         (5, 64, 95, "INTERNET 3740", 1, {}),

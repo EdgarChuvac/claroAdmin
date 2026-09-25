@@ -1,4 +1,22 @@
-from typing import Dict, Any, List
+import re
+
+from typing import Any, Dict, List
+
+
+def _text(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def _replace_fact_line(block: str, label: str, value: str) -> str:
+    if not value:
+        return block
+    pattern = rf"(?im)^{re.escape(label)}\s*[:\t]?\s*.*$"
+    replacement = f"{label}:\t{value}"
+    if re.search(pattern, block):
+        return re.sub(pattern, lambda _: replacement, block)
+    return f"{block.rstrip()}\n{replacement}"
 
 def build_route_string(equipos: List[Dict[str, str]], raisecom_model: str = "RAISECOM RAX711-L", cisco_model: str = "CISCO C921") -> str:
     """
@@ -8,12 +26,13 @@ def build_route_string(equipos: List[Dict[str, str]], raisecom_model: str = "RAI
     """
     parts = []
     for eq in equipos:
-        rol = eq.get("rol", "").strip()
-        marca = eq.get("marca", "").strip()
-        modelo = eq.get("modelo", "").strip()
-        hostname = eq.get("hostname", "").strip()
-        ip = eq.get("ip_admon", "").strip()
-        int_out = eq.get("int_out", "").strip()
+        rol = _text(eq.get("rol"))
+        marca = _text(eq.get("marca"))
+        modelo = _text(eq.get("modelo"))
+        hostname = _text(eq.get("hostname"))
+        ip = _text(eq.get("ip_admon"))
+        int_in = _text(eq.get("int_in"))
+        int_out = _text(eq.get("int_out"))
         
         # Ensamblar nombre del equipo
         header = f"{rol} {marca} {modelo}".strip()
@@ -21,6 +40,8 @@ def build_route_string(equipos: List[Dict[str, str]], raisecom_model: str = "RAI
             header += f" {hostname}"
         if ip:
             header += f" ({ip})"
+        if int_in:
+            header += f" {int_in}"
         if int_out:
             header += f" {int_out}"
             
@@ -39,23 +60,23 @@ def generate_format_text(data: Dict[str, Any]) -> str:
     """
     Genera el formato estandarizado de Alta de Internet Corporativo con todos los datos.
     """
-    cliente = data.get("cliente", "").strip()
-    direccion = data.get("direccion", "").strip()
-    coordenadas = data.get("coordenadas", "").strip()
-    disenador = data.get("disenador", "").strip()
-    tel_disenador = data.get("tel_disenador", "").strip()
-    fecha = data.get("fecha", "").strip()
+    cliente = _text(data.get("cliente"))
+    direccion = _text(data.get("direccion"))
+    coordenadas = _text(data.get("coordenadas"))
+    disenador = _text(data.get("disenador"))
+    tel_disenador = _text(data.get("tel_disenador"))
+    fecha = _text(data.get("fecha"))
     
-    titulo = data.get("titulo", "INTERNET CORPORATIVO").strip()
-    contacto_tec = data.get("contacto_tec", "").strip()
-    ejecutivo = data.get("ejecutivo", "").strip()
-    consultor = data.get("consultor", "").strip()
-    medio = data.get("medio", "FIBRA").strip()
-    factibilidad = data.get("factibilidad", "").strip()
-    equipo_cpe = data.get("equipo_cpe", "CISCO C921").strip()
-    velocidad = data.get("velocidad", "300 MBPS").strip()
-    ips_count = data.get("ips_count", "1").strip()
-    observaciones = data.get("observaciones", "ALTA DE IC").strip()
+    titulo = _text(data.get("titulo"), "INTERNET CORPORATIVO")
+    contacto_tec = _text(data.get("contacto_tec"))
+    ejecutivo = _text(data.get("ejecutivo"))
+    consultor = _text(data.get("consultor"))
+    medio = _text(data.get("medio"), "FIBRA")
+    factibilidad = _text(data.get("factibilidad"))
+    equipo_cpe = _text(data.get("equipo_cpe"), "CISCO C921")
+    velocidad = _text(data.get("velocidad"), "300 MBPS")
+    ips_count = _text(data.get("ips_count"), "1")
+    observaciones = _text(data.get("observaciones"), "ALTA DE IC")
     
     # Items aceptados
     items = data.get("items_aceptados", [
@@ -63,42 +84,43 @@ def generate_format_text(data: Dict[str, Any]) -> str:
         "ARRENDAMIENTO EQUIPO  (ACEPTADO)",
         "MONITOREO ENLACE  (ACEPTADO)"
     ])
-    items_block = "\n".join([f"\t• {item}" for item in items])
+    clean_items = [_text(item).lstrip("• ") for item in items if _text(item)]
+    items_block = "\n".join([f"\t• {item}" for item in clean_items])
     
     # Ruta
     equipos = data.get("equipos_claro", [])
     raisecom = data.get("equipo_raisecom", "RAISECOM RAX711-L")
-    ruta_str = data.get("ruta_manual", "").strip()
+    ruta_str = _text(data.get("ruta_manual"))
     if not ruta_str:
         ruta_str = build_route_string(equipos, raisecom, equipo_cpe)
         
     # Recursos Gestor Raisecom
-    vrf_gestor = data.get("vrf_gestor", "GESTOR_RAISECOM").strip()
-    vlan_gestor = data.get("vlan_gestor", "836").strip()
-    red_gestor = data.get("red_gestor", "10.40.3.0/24").strip()
-    gw_gestor = data.get("gw_gestor", "10.40.3.1").strip()
-    ip_gestor_raisecom = data.get("ip_gestor_raisecom", "10.40.3.120").strip()
+    vrf_gestor = _text(data.get("vrf_gestor"), "GESTOR_RAISECOM")
+    vlan_gestor = _text(data.get("vlan_gestor"), "836")
+    red_gestor = _text(data.get("red_gestor"), "10.40.3.0/24")
+    gw_gestor = _text(data.get("gw_gestor"), "10.40.3.1")
+    ip_gestor_raisecom = _text(data.get("ip_gestor_raisecom"), "10.40.3.120")
     
     # Recursos WAN (del Excel)
-    red_wan = data.get("red_wan", "").strip()
-    gw_wan = data.get("gw_wan", "").strip()
-    ip_wan = data.get("ip_wan", "").strip()
+    red_wan = _text(data.get("red_wan"))
+    gw_wan = _text(data.get("gw_wan"))
+    ip_wan = _text(data.get("ip_wan"))
     
     # Loopback y LAN
-    loopback = data.get("loopback", "").strip()
-    lan = data.get("lan", "").strip()
-    lan_obs = data.get("lan_obs", "").strip()
+    loopback = _text(data.get("loopback"))
+    lan = _text(data.get("lan"))
+    lan_obs = _text(data.get("lan_obs"))
     lan_line = f"{lan} | {lan_obs}".strip(" |")
     
     # Isla y VLAN
-    isla = data.get("isla", "").strip()
-    vlan_num = data.get("vlan_num", "").strip()
-    desc_vlan = data.get("desc_vlan", "").strip()
+    isla = _text(data.get("isla"))
+    vlan_num = _text(data.get("vlan_num"))
+    desc_vlan = _text(data.get("desc_vlan"))
     
     # Huawei ip vpn-instance
-    vrf_name = data.get("vrf_name", "INTERNET_GT_METRO").strip()
-    vrf_desc = data.get("vrf_desc", "INTERNET_PEs_METROPOLITANO_ISLA_APP").strip()
-    rd = data.get("rd", "6458:11270").strip()
+    vrf_name = _text(data.get("vrf_name"), "INTERNET_GT_METRO")
+    vrf_desc = _text(data.get("vrf_desc"), "INTERNET_PEs_METROPOLITANO_ISLA_APP")
+    rd = _text(data.get("rd"), "6458:11270")
     vpn_targets = data.get("vpn_targets", [
         "  vpn-target 6458:11270 export-extcommunity",
         "  vpn-target 6458:18900 export-extcommunity",
@@ -120,17 +142,16 @@ def generate_format_text(data: Dict[str, Any]) -> str:
         vpn_targets_str = "\n".join(vpn_targets)
         
     # Monitoreo
-    id_servicio = data.get("id_servicio", "").strip()
-    loopback_id = data.get("loopback_id", "5").strip()
+    id_servicio = _text(data.get("id_servicio"))
+    loopback_id = _text(data.get("loopback_id"), "5")
     loopback_ip = loopback.split("/")[0] if "/" in loopback else loopback
-    psk = data.get("psk", "").strip()
+    psk = _text(data.get("psk"))
     
     # Factibilidad: bloque pegado o ensamblado campo a campo
-    factibilidad_bloque = data.get("factibilidad_bloque", "").strip()
+    factibilidad_bloque = _text(data.get("factibilidad_bloque"))
     
     # Si viene el bloque pegado, extraer automáticamente dirección y coordenadas si no vienen dadas
     if factibilidad_bloque:
-        import re
         if not direccion:
             dir_match = re.search(r'DIRECCION[:\t\s]+([^,\n\r]+(?:,[^,\n\r]+)*?)(?=,\s*//|\s*//|\n|$)', factibilidad_bloque, re.IGNORECASE)
             if dir_match:
@@ -166,8 +187,31 @@ def generate_format_text(data: Dict[str, Any]) -> str:
     ]
     
     if factibilidad_bloque:
-        # Asegurar que la línea de TITULO en el bloque concuerde con la opción elegida
-        factibilidad_bloque = re.sub(r'TITULO:[\t\s]*\*\*\*[^*]+\*\*\*', f'TITULO:\t***{tipo_servicio}***', factibilidad_bloque, flags=re.IGNORECASE)
+        # Los campos del formulario son la fuente vigente y prevalecen sobre el bloque pegado.
+        title_replacement = f"TITULO:\t***{tipo_servicio}***"
+        factibilidad_bloque = re.sub(
+            r'TITULO:[\t\s]*\*\*\*[^*]+\*\*\*',
+            lambda _: title_replacement,
+            factibilidad_bloque,
+            flags=re.IGNORECASE,
+        )
+        for label, value in (
+            ("CONTACTO TEC", contacto_tec),
+            ("EJECUTIVO", ejecutivo),
+            ("CONSULTOR", consultor),
+            ("MEDIO", medio),
+            ("FACTIBILIDAD", factibilidad),
+            ("EQUIPO", equipo_cpe),
+            ("VELOCIDAD", velocidad),
+            ("IPS", ips_count),
+            ("OBSERVACIONES", observaciones),
+        ):
+            factibilidad_bloque = _replace_fact_line(factibilidad_bloque, label, value)
+        if direccion or coordenadas:
+            location = f"{direccion}, // COORDENADAS: {coordenadas}".strip(" ,")
+            factibilidad_bloque = _replace_fact_line(
+                factibilidad_bloque, "DIRECCION", location
+            )
         lines.append(factibilidad_bloque)
         if not factibilidad_bloque.endswith("****"):
             lines.extend(["", "****"])

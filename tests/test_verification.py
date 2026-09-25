@@ -40,18 +40,18 @@ def test_excel_parsing():
 
 def test_format_generation():
     test_data = {
-        "cliente": "NESTLE GUATEMALA SA",
-        "direccion": "48 CALLE 15-74 ZONA 12 GUATEMALA CITY",
-        "coordenadas": "14.566537730922489, -90.552684568",
-        "disenador": "EDGAR CHUVAC",
-        "tel_disenador": "58261994",
+        "cliente": "CLIENTE DEMO SA",
+        "direccion": "DIRECCION DE DEMOSTRACION",
+        "coordenadas": "",
+        "disenador": "INGENIERO DEMO",
+        "tel_disenador": "",
         "fecha": "19-05-2025",
         "titulo": "INTERNET CORPORATIVO",
-        "contacto_tec": "KERVIN RODRIGUEZ TEL 39925496",
-        "ejecutivo": "VICKY HERRARTE TEL 58261258",
-        "consultor": "LUIS FERNANDO MARROQUIN / TEL: 5826-4126",
+        "contacto_tec": "CONTACTO DEMO",
+        "ejecutivo": "EJECUTIVO DEMO",
+        "consultor": "CONSULTOR DEMO",
         "medio": "FIBRA",
-        "factibilidad": "FACTIBLE BRINDAR SERVICIO POR MEDIO DE FIBRA DESDE CENTRAL EL CARMEN, USAR RUTA Y CENTRAL DIFENERENTE DEL ID 99900465T",
+        "factibilidad": "FACTIBLE SEGUN VALIDACION TECNICA DE DEMOSTRACION",
         "equipo_cpe": "CISCO C921",
         "velocidad": "300 MBPS",
         "ips_count": "1",
@@ -62,10 +62,8 @@ def test_format_generation():
             "MONITOREO ENLACE  (ACEPTADO)"
         ],
         "equipos_claro": [
-            {"rol": "PE", "marca": "HUAWEI", "modelo": "NE40E", "hostname": "GNCYGTECN1D1A12B02EIM3", "ip_admon": "10.179.28.10", "int_out": ""},
-            {"rol": "PE", "marca": "HUAWEI", "modelo": "NE40E", "hostname": "GNCYGTECN1D1A11B02EIM2", "ip_admon": "10.179.28.9", "int_out": ""},
-            {"rol": "EL CARMEN", "marca": "", "modelo": "ATN980C", "hostname": "GNCYGTECN1D1C06A331BM1", "ip_admon": "10.78.10.102", "int_out": "Eth-Trunk12 (GE0/6/0, GE0/6/1)"},
-            {"rol": "TRÁFICO", "marca": "EL-CARMEN-CTC", "modelo": "FRM220A-07", "hostname": "GNCYGTECN1D1C05A28AHA6", "ip_admon": "10.78.250.234", "int_out": "S15|P2"}
+            {"rol": "PE", "marca": "HUAWEI", "modelo": "NE40E", "hostname": "PE-DEMO-01", "ip_admon": "192.0.2.10", "int_out": ""},
+            {"rol": "SW", "marca": "HUAWEI", "modelo": "ATN980C", "hostname": "SW-DEMO-01", "ip_admon": "192.0.2.11", "int_out": "Eth-Trunk12"},
         ],
         "equipo_raisecom": "RAISECOM RAX711-L",
         "vrf_gestor": "GESTOR_RAISECOM",
@@ -85,9 +83,9 @@ def test_format_generation():
         "vrf_name": "INTERNET_GT_METRO",
         "vrf_desc": "INTERNET_PEs_METROPOLITANO_ISLA_APP",
         "rd": "6458:11270",
-        "id_servicio": "99900466T",
+        "id_servicio": "SERVICIO-DEMO-001",
         "loopback_id": "5",
-        "psk": "dgQ3IvfatixK9m"
+        "psk": "PSK-DEMO-NO-VALIDA"
     }
     
     text = generate_format_text(test_data)
@@ -96,12 +94,46 @@ def test_format_generation():
     print("--- FIN VISTA PREVIA ---")
     
     assert "***********************ALTA DE INTERNET CORPORATIVO**********************" in text
-    assert "99900466T" in text
+    assert "SERVICIO-DEMO-001" in text
     assert "10.78.89.32/27 RED" in text
     assert "10.78.89.35    WAN" in text
     assert "ip vpn-instance INTERNET_GT_METRO" in text
-    assert "PRE-SHARED KEY: dgQ3IvfatixK9m" in text
+    assert "PRE-SHARED KEY: PSK-DEMO-NO-VALIDA" in text
     print("[OK] Todas las validaciones de generacion de formato pasaron exitosamente.")
+
+
+def test_form_fields_override_pasted_factibility_block():
+    text = generate_format_text(
+        {
+            "titulo": "INTERNET CORPORATIVO",
+            "medio": "RADIO",
+            "velocidad": "500 MBPS",
+            "direccion": "DIRECCION ACTUAL",
+            "coordenadas": "14.0, -90.0",
+            "factibilidad_bloque": (
+                "TITULO:\t***INTERNET CORPORATIVO***\n"
+                "MEDIO:\tFIBRA\n"
+                "VELOCIDAD:\t100 MBPS\n"
+                "DIRECCION:\tDIRECCION ANTERIOR"
+            ),
+        }
+    )
+
+    assert "MEDIO:\tRADIO" in text
+    assert "VELOCIDAD:\t500 MBPS" in text
+    assert "DIRECCION:\tDIRECCION ACTUAL, // COORDENADAS: 14.0, -90.0" in text
+    assert "DIRECCION ANTERIOR" not in text
+
+
+def test_factibility_values_treat_backslashes_as_text():
+    text = generate_format_text(
+        {
+            "medio": r"RADIO\1",
+            "factibilidad_bloque": "MEDIO:\tFIBRA",
+        }
+    )
+
+    assert "MEDIO:\t" + r"RADIO\1" in text
 
 if __name__ == "__main__":
     print("Ejecutando pruebas de verificacion...")

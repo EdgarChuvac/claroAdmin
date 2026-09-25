@@ -149,6 +149,11 @@ body {
   background-color: var(--tab-hover);
 }
 
+.tab-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 .tab-btn.active {
   background-color: #FFFFFF;
   border-top: 3px solid var(--tab-active-border);
@@ -256,6 +261,9 @@ body {
 
 input[type="text"],
 input[type="number"],
+input[type="password"],
+input[type="date"],
+input[type="tel"],
 select,
 textarea {
   font-family: inherit;
@@ -270,6 +278,9 @@ textarea {
 }
 
 input[type="text"]:focus,
+input[type="password"]:focus,
+input[type="date"]:focus,
+input[type="tel"]:focus,
 select:focus,
 textarea:focus {
   border-color: #0078D7;
@@ -360,6 +371,31 @@ textarea:focus {
 .btn-sm {
   padding: 4px 8px;
   font-size: 11px;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.btn:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #005ea8;
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* IPAM Toolbar */
@@ -477,6 +513,21 @@ textarea:focus {
   font-size: 12px;
   font-weight: 600;
   margin-bottom: 10px;
+}
+
+.generation-status {
+  min-height: 18px;
+  margin: 6px 5px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.generation-status.ready {
+  color: #16713a;
+}
+
+.generation-status.pending {
+  color: #9a3412;
 }
 
 /* Service Type Option Selector */
@@ -648,4 +699,52 @@ textarea:focus {
   to { opacity: 1; }
 }
 
+@media (max-width: 800px) {
+  .app-header,
+  .header-right,
+  .flex-between,
+  .modal-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
 
+  .tabs-nav {
+    overflow-x: auto;
+  }
+
+  .tab-btn {
+    flex: 0 0 auto;
+  }
+
+  .grid-2,
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .col-span-2 {
+    grid-column: span 1;
+  }
+
+  .factibilidad-compact-box,
+  .ipam-controls,
+  .ipam-actions,
+  .format-actions,
+  .table-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ipam-field,
+  .btn {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

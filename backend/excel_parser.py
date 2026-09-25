@@ -1,5 +1,8 @@
 import math
 import re
+import os
+import tempfile
+from ipaddress import IPv4Address, IPv4Network
 from typing import Dict, List, Optional, Any
 import openpyxl
 from openpyxl.styles import PatternFill
@@ -20,22 +23,23 @@ class IPBlock:
         vlan_match = re.search(r'\b(\d{1,5})\b', self.vlan_raw)
         self.vlan = vlan_match.group(1) if vlan_match else ""
         
+        if not 0 <= network_octet <= broadcast_octet <= 255:
+            raise ValueError("Rango de subred inválido")
+
         # Calculate CIDR
         self.size = broadcast_octet - network_octet + 1
         if self.size > 0 and (self.size & (self.size - 1)) == 0:
             self.cidr = 32 - int(math.log2(self.size))
         else:
-            self.cidr = 27  # Default fallback
+            raise ValueError("El rango de la subred debe ser una potencia de dos")
             
         # Base IP
         # Sheet name usually e.g. "10.20.38.0" -> base is "10.20.38"
-        parts = sheet_name.strip().split('.')
-        if len(parts) >= 3:
-            self.ip_base = f"{parts[0]}.{parts[1]}.{parts[2]}"
-        else:
-            self.ip_base = sheet_name.strip()
+        sheet_ip = IPv4Address(sheet_name.strip())
+        self.ip_base = ".".join(str(sheet_ip).split(".")[:3])
+        network = IPv4Network(f"{self.ip_base}.{network_octet}/{self.cidr}", strict=True)
             
-        self.network_ip = f"{self.ip_base}.{self.network_octet}/{self.cidr}"
+        self.network_ip = str(network)
         self.broadcast_ip = f"{self.ip_base}.{self.broadcast_octet}"
         self.gateway_octet = None
         self.gateway_ip = None
@@ -113,6 +117,10 @@ class ExcelIPAMReader:
                         
                     label_str = str(label_val).strip() if label_val is not None else ""
                     
+                    if not 0 <= octet_num <= 255:
+                        r += 1
+                        continue
+
                     # If this row starts a subnet (not BROADCAST, not GW, and often has VLAN or starts range)
                     # We search until BROADCAST
                     if "BROADCAST" not in label_str.upper():
@@ -147,15 +155,19 @@ class ExcelIPAMReader:
                             end_r += 1
                             
                         if found_broadcast and broadcast_octet is not None:
-                            block = IPBlock(
-                                sheet_name=sheet_name,
-                                network_octet=network_octet,
-                                broadcast_octet=broadcast_octet,
-                                col_num=c,
-                                start_row=start_row,
-                                end_row=end_r,
-                                vlan_raw=vlan_raw
-                            )
+                            try:
+                                block = IPBlock(
+                                    sheet_name=sheet_name,
+                                    network_octet=network_octet,
+                                    broadcast_octet=broadcast_octet,
+                                    col_num=c,
+                                    start_row=start_row,
+                                    end_row=end_r,
+                                    vlan_raw=vlan_raw
+                                )
+                            except ValueError:
+                                r = end_r + 1
+                                continue
                             
                             # Parse hosts between start_row and end_r
                             for host_r in range(start_row + 1, end_r):
@@ -205,24 +217,53 @@ class ExcelIPAMReader:
                 
         return blocks
 
-    def assign_ip(self, sheet_name: str, row: int, col_val: int, client_id: str) -> bool:
+    def assign_ip(self, sheet_name: str, ip: str, client_id: str) -> bool:
         """
-        Assigns an IP in the Excel file by writing client_id to the specific row & column,
-        and sets cell background color to orange (#F8CBAD).
+        Assigns an available IP after resolving its cell from the inventory itself.
         """
+        try:
+            requested_ip = str(IPv4Address(ip))
+        except ValueError:
+            return False
+
+        target = None
+        for block in self.parse_sheet(sheet_name):
+            match = next(
+                (item for item in block.available_ips if item["ip"] == requested_ip),
+                None,
+            )
+            if match:
+                target = (match["row"], block.val_col_num)
+                break
+        if target is None:
+            return False
+
         wb_write = openpyxl.load_workbook(self.file_path)
         if sheet_name not in wb_write.sheetnames:
             return False
-            
+
         ws = wb_write[sheet_name]
-        cell = ws.cell(row=row, column=col_val)
+        cell = ws.cell(row=target[0], column=target[1])
+        current_value = str(cell.value).strip() if cell.value is not None else ""
+        if current_value not in ("", "None", "-"):
+            return False
         cell.value = client_id
         
         # Orange fill for assigned client (Claro style peach/orange)
         orange_fill = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
         cell.fill = orange_fill
         
-        wb_write.save(self.file_path)
+        file_path = os.path.abspath(self.file_path)
+        fd, temp_name = tempfile.mkstemp(
+            dir=os.path.dirname(file_path), suffix=".xlsx"
+        )
+        os.close(fd)
+        try:
+            wb_write.save(temp_name)
+            os.replace(temp_name, file_path)
+        finally:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
         # Reload internal wb
         self.load_workbook()
         return True

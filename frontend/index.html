@@ -30,7 +30,7 @@
       <label class="btn btn-outline" for="excel-file-input">
         📂 Cargar Excel de IPs
       </label>
-      <input type="file" id="excel-file-input" accept=".xlsx, .xls" style="display:none;">
+      <input type="file" id="excel-file-input" accept=".xlsx" class="visually-hidden">
     </div>
   </header>
 
@@ -46,6 +46,7 @@
       <button class="tab-btn" data-tab="tab-medio">Medio</button>
       <button class="tab-btn highlight-tab" data-tab="tab-generar">⚡ Generar Formato</button>
     </nav>
+    <p id="generation-requirements-status" class="generation-status pending" role="status" aria-live="polite"></p>
 
     <!-- TAB: PRINCIPAL -->
     <section class="tab-content active" id="tab-principal">
@@ -64,19 +65,19 @@
           </div>
           <div class="form-group col-span-2">
             <label>ID del Servicio (identificador único):</label>
-            <input type="text" id="p-id-servicio" value="99900466T" class="input-highlight">
+            <input type="text" id="p-id-servicio" value="" placeholder="Ingrese el identificador del servicio" class="input-highlight" required>
           </div>
           <div class="form-group col-span-2">
             <label>Nombre del Cliente:</label>
-            <input type="text" id="p-cliente" value="NESTLE GUATEMALA, S.A.">
+            <input type="text" id="p-cliente" value="" placeholder="Ingrese el nombre del cliente" required>
           </div>
           <div class="form-group">
             <label>Diseñado Por (Ingeniero):</label>
-            <input type="text" id="p-disenador" value="EDGAR CHUVAC">
+            <input type="text" id="p-disenador" value="INGENIERO DEMO">
           </div>
           <div class="form-group">
             <label>Número de Teléfono (Diseñador):</label>
-            <input type="text" id="p-tel-disenador" value="58261994">
+            <input type="tel" id="p-tel-disenador" value="">
           </div>
           <div class="form-group">
             <label>Fecha de Diseño (Calendario):</label>
@@ -90,25 +91,15 @@
             
             <div class="factibilidad-compact-box">
               <input type="text" id="p-factibilidad-quick-paste" placeholder="Pega aquí la Factibilidad con Ctrl+V (o presiona F2 para abrir el editor)..." onpaste="handleQuickPaste(event)" onkeydown="handleQuickPasteKey(event)">
-              <div id="factibilidad-status-badge" class="fact-badge loaded">
-                <span class="badge-icon">✅</span>
-                <span class="badge-text">Factibilidad Cargada</span>
+              <div id="factibilidad-status-badge" class="fact-badge empty">
+                <span class="badge-icon">○</span>
+                <span class="badge-text">Sin Factibilidad</span>
               </div>
               <button type="button" class="btn btn-secondary btn-sm" onclick="openFactibilidadModal()" title="Presiona F2 para ver o editar">
                 👁️ Ver / Editar (F2)
               </button>
             </div>
-            <textarea id="p-factibilidad-bloque" style="display: none;">TITULO:	***INTERNET CORPORATIVO***
-CONTACTO TEC:	KERVIN RODRIGUEZ TEL 39925496
-EJECUTIVO:	VICKY HERRARTE TEL 58261258
-CONSULTOR:	LUIS FERNANDO MARROQUIN / TEL: 5826-4126
-MEDIO:	FIBRA
-FACTIBILIDAD:	FACTIBLE BRINDAR SERVICIO POR MEDIO DE FIBRA DESDE CENTRAL EL CARMEN, USAR RUTA Y CENTRAL DIFENERENTE DEL ID 99900465T
-EQUIPO:	CISCO C921
-VELOCIDAD:	300 MBPS
-IPS:	1
-DIRECCION	48 CALLE 15-74, ZONA 12, GUATEMALA CITY, // COORDENADAS: 14.566537730922489, - 90.55268456883014
-OBSERVACIONES:	ALTA DE IC</textarea>
+            <textarea id="p-factibilidad-bloque" style="display: none;"></textarea>
           </div>
         </div>
       </div>
@@ -123,12 +114,12 @@ OBSERVACIONES:	ALTA DE IC</textarea>
         <div class="card-body">
           <div class="form-group">
             <label>Dirección Física de Instalación:</label>
-            <input type="text" id="u-direccion" value="48 CALLE 15-74, ZONA 12, GUATEMALA CITY">
+              <input type="text" id="u-direccion" value="DIRECCIÓN DE DEMOSTRACIÓN">
           </div>
           <div class="form-group">
             <label>Coordenadas GPS (Latitud, Longitud):</label>
             <div class="input-with-button">
-              <input type="text" id="u-coordenadas" value="14.566537730922489, -90.55268456883014">
+              <input type="text" id="u-coordenadas" value="">
               <button class="btn btn-secondary" onclick="openMaps()">Ver en Google Maps</button>
             </div>
           </div>
@@ -165,7 +156,7 @@ OBSERVACIONES:	ALTA DE IC</textarea>
           </div>
           <div class="form-group col-span-2">
             <label>Dictamen de Factibilidad:</label>
-            <textarea id="s-factibilidad" rows="2">FACTIBLE BRINDAR SERVICIO POR MEDIO DE FIBRA DESDE CENTRAL EL CARMEN, USAR RUTA Y CENTRAL DIFERENTE DEL ID 99900465T</textarea>
+            <textarea id="s-factibilidad" rows="2">FACTIBLE SEGÚN VALIDACIÓN TÉCNICA DE DEMOSTRACIÓN</textarea>
           </div>
           <div class="form-group col-span-2">
             <label>Observaciones de Ingeniería:</label>
@@ -204,7 +195,7 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
           </div>
           <div class="ipam-actions">
             <button class="btn btn-primary" onclick="assignFirstFreeIP()">⚡ Asignar Siguiente Libre</button>
-            <button class="btn btn-success" onclick="confirmIPReservation()">💾 Reservar en Excel</button>
+            <button class="btn btn-success" id="btn-reserve-ip" onclick="confirmIPReservation()">💾 Reservar en Excel</button>
           </div>
         </div>
       </div>
@@ -225,7 +216,7 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
           </div>
           <div class="form-group">
             <label>RED WAN (con máscara CIDR):</label>
-            <input type="text" id="eq-red-wan" value="10.78.138.96/27" class="input-highlight">
+            <input type="text" id="eq-red-wan" value="" class="input-highlight" readonly>
           </div>
 
           <div class="form-group">
@@ -238,7 +229,7 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
           </div>
           <div class="form-group">
             <label>Gateway WAN:</label>
-            <input type="text" id="eq-gw-wan" value="10.78.138.97" class="input-highlight">
+            <input type="text" id="eq-gw-wan" value="" class="input-highlight" readonly>
           </div>
 
           <div class="form-group">
@@ -247,21 +238,21 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
           </div>
           <div class="form-group">
             <label>IP LAN:</label>
-            <input type="text" id="eq-ip-lan" value="201.216.158.208/28 | TAREA DE LIMPIEZA T1654673">
+            <input type="text" id="eq-ip-lan" value="203.0.113.0/28 | EJEMPLO">
           </div>
           <div class="form-group">
             <label>IP WAN Asignada:</label>
-            <input type="text" id="eq-ip-wan" value="10.78.138.109" class="input-highlight">
+            <input type="text" id="eq-ip-wan" value="" class="input-highlight" readonly>
           </div>
 
           <div class="form-group">
             <label>IP Loopback:</label>
-            <input type="text" id="eq-loopback" value="10.212.239.51/32">
+            <input type="text" id="eq-loopback" value="192.0.2.100/32">
           </div>
           <div class="form-group">
             <label>Pre-Shared Key (PSK):</label>
             <div class="input-with-button">
-              <input type="text" id="eq-psk" value="dgQ3IvfatixK9m">
+              <input type="password" id="eq-psk" value="" autocomplete="new-password">
               <button class="btn btn-sm btn-secondary" onclick="generateRandomPSK()">🎲 Generar</button>
             </div>
           </div>
@@ -338,9 +329,9 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
         <div class="card-header flex-between">
           <h3>Formato Final de Alta de Internet Corporativo</h3>
           <div class="format-actions">
-            <button class="btn btn-primary" onclick="updateGeneratedFormat()">🔄 Actualizar Vista Previa</button>
+            <button class="btn btn-primary" id="btn-update-format" onclick="updateGeneratedFormat()">🔄 Actualizar Vista Previa</button>
             <button class="btn btn-success" id="btn-copy-format" onclick="copyFormatToClipboard()">📋 Copiar al Portapapeles</button>
-            <button class="btn btn-secondary" onclick="downloadFormatTxt()">📥 Descargar .TXT</button>
+            <button class="btn btn-secondary" id="btn-download-format" onclick="downloadFormatTxt()">📥 Descargar .TXT</button>
           </div>
         </div>
         <div class="card-body">
@@ -353,12 +344,12 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
   </div>
 
   <!-- MODAL FLOTANTE DE FACTIBILIDAD (ACTIVABLE CON F2) -->
-  <div id="factibilidad-modal" class="modal-overlay" style="display: none;">
+  <div id="factibilidad-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="factibilidad-modal-title" style="display: none;">
     <div class="modal-container">
       <div class="modal-header">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 16px;">📋</span>
-          <h3 style="margin: 0; font-size: 15px;">Texto de Factibilidad del Servicio</h3>
+          <h3 id="factibilidad-modal-title" style="margin: 0; font-size: 15px;">Texto de Factibilidad del Servicio</h3>
           <span class="badge-f2">Atajo: F2</span>
         </div>
         <button type="button" class="btn-modal-close" onclick="closeFactibilidadModal()" title="Cerrar ventana">&times;</button>
