@@ -8,19 +8,20 @@ sys.path.insert(0, base_dir)
 from backend.excel_parser import ExcelIPAMReader
 from backend.format_generator import generate_format_text
 
+
 def test_excel_parsing():
     excel_path = os.path.join(base_dir, "data", "ejemplo_inventario_ips.xlsx")
     assert os.path.exists(excel_path), f"Excel no encontrado: {excel_path}"
-    
+
     reader = ExcelIPAMReader(excel_path)
     sheets = reader.get_sheet_names()
     print("Hojas encontradas:", sheets)
     assert "10.20.38.0" in sheets, "Hoja 10.20.38.0 debe estar presente"
-    
+
     blocks = reader.parse_sheet("10.20.38.0")
     print(f"Total de subredes detectadas en 10.20.38.0: {len(blocks)}")
     assert len(blocks) >= 8, f"Se esperaban al menos 8 subredes, se obtuvieron {len(blocks)}"
-    
+
     # Validar primer bloque (0 a 31)
     b0 = blocks[0]
     print(f"Bloque 0: Red={b0.network_ip}, GW={b0.gateway_ip}, VLAN={b0.vlan}, CIDR={b0.cidr}")
@@ -29,13 +30,13 @@ def test_excel_parsing():
     assert b0.vlan == "3740", f"VLAN incorrecta: {b0.vlan}"
     assert len(b0.assigned_ips) == 4, f"Se esperaban 4 IPs ocupadas, hay {len(b0.assigned_ips)}"
     assert b0.available_ips[0]["ip"] == "10.20.38.6", f"Primera libre esperada 10.20.38.6, se obtuvo {b0.available_ips[0]['ip']}"
-    
+
     # Validar bloque /28 apilado (192 a 207)
     b_stacked = [b for b in blocks if b.network_octet == 192][0]
     print(f"Bloque 192..207: Red={b_stacked.network_ip}, Tamaño={b_stacked.size}, CIDR=/{b_stacked.cidr}")
     assert b_stacked.size == 16, f"Tamaño esperado 16, se obtuvo {b_stacked.size}"
     assert b_stacked.cidr == 28, f"CIDR esperado 28, se obtuvo {b_stacked.cidr}"
-    
+
     print("[OK] Todas las validaciones de lectura de Excel pasaron exitosamente.")
 
 def test_format_generation():
@@ -87,12 +88,12 @@ def test_format_generation():
         "loopback_id": "5",
         "psk": "PSK-DEMO-NO-VALIDA"
     }
-    
+
     text = generate_format_text(test_data)
     print("\n--- INICIO FORMATO GENERADO ---")
     print(text[:400] + "\n...")
     print("--- FIN VISTA PREVIA ---")
-    
+
     assert "***********************ALTA DE INTERNET CORPORATIVO**********************" in text
     assert "SERVICIO-DEMO-001" in text
     assert "10.78.89.32/27 RED" in text

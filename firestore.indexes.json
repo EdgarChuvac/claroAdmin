@@ -1,0 +1,46 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "altas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "service_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "operations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "operator", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "operations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "service_id", "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "operations",
+      "fieldPath": "expires_at",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "altas",
+      "fieldPath": "formatted_text",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "altas",
+      "fieldPath": "form_data",
+      "indexes": []
+    }
+  ]
+}

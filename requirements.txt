@@ -1,7 +1,9 @@
+# Dependencias de ejecución (producción)
 fastapi==0.117.1
-httpx==0.28.1
-openpyxl==3.1.5
-pydantic>=2.12,<3
-python-multipart==0.0.20
-pytest==8.4.2
 uvicorn[standard]==0.36.0
+pydantic>=2.12,<3
+pydantic-settings==2.15.0
+python-multipart==0.0.20
+openpyxl==3.1.5
+firebase-admin==7.7.0
+google-cloud-firestore==2.34.0

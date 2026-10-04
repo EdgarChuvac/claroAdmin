@@ -8,36 +8,31 @@
 </head>
 <body>
 
-  <!-- Top Red Accent Bar -->
   <div class="top-red-bar"></div>
 
-  <!-- Header Banner -->
   <header class="app-header">
     <div class="header-left">
-      <div class="claro-logo-circle">
-        <span>Claro</span>
-      </div>
+      <div class="claro-logo-circle"><span>Claro</span></div>
       <div class="header-title">
         <h1>CLARO CENAM</h1>
-        <span class="sub-title">Service Manager | Generador de Altas de Internet Corporativo</span>
+        <span class="sub-title">Service Manager | Generador de Altas</span>
       </div>
     </div>
     <div class="header-right">
-      <div class="excel-status-badge" id="excel-badge">
+      <div class="excel-status-badge" id="inventory-badge" title="Estado del inventario en Firebase">
         <span class="dot"></span>
-        <span id="excel-filename">Cargando inventario...</span>
+        <span id="inventory-status">Conectando...</span>
       </div>
-      <label class="btn btn-outline" for="excel-file-input">
-        📂 Cargar Excel de IPs
-      </label>
-      <input type="file" id="excel-file-input" accept=".xlsx" class="visually-hidden">
+      <button type="button" class="btn btn-outline" id="btn-open-import" onclick="openImportModal()">📂 Importar Excel a Firebase</button>
+      <button type="button" class="btn btn-outline" id="btn-export" onclick="exportInventory()">📥 Exportar inventario</button>
+      <button type="button" class="operator-chip" id="operator-chip" onclick="openOperatorModal()" title="Cambiar nombre de operador">
+        <span aria-hidden="true">👤</span> <span id="operator-name">Sin operador</span>
+      </button>
     </div>
   </header>
 
-  <!-- Main Container -->
   <div class="main-container">
 
-    <!-- Navigation Tabs (Matching Service Manager) -->
     <nav class="tabs-nav">
       <button class="tab-btn active" data-tab="tab-principal">Principal</button>
       <button class="tab-btn" data-tab="tab-ubicacion">Ubicación</button>
@@ -45,6 +40,7 @@
       <button class="tab-btn" data-tab="tab-equipamiento">Equipamiento</button>
       <button class="tab-btn" data-tab="tab-medio">Medio</button>
       <button class="tab-btn highlight-tab" data-tab="tab-generar">⚡ Generar Formato</button>
+      <button class="tab-btn tab-right" data-tab="tab-consultas" data-always-enabled="true">🔎 Consultas</button>
     </nav>
     <p id="generation-requirements-status" class="generation-status pending" role="status" aria-live="polite"></p>
 
@@ -56,16 +52,13 @@
         </div>
         <div class="card-body grid-2">
           <div class="form-group col-span-2">
-            <label style="font-weight: 700; margin-bottom: 4px; color: #333;">Tipo de Servicio (Título):</label>
-            <select id="p-titulo" onchange="onServiceTypeChange(this.value)" style="font-size: 13px; font-weight: 600; padding: 7px 12px; border: 1px solid #0078D7; border-radius: 4px; background-color: #F8FBFE; color: #004085; max-width: 320px; cursor: pointer;">
-              <option value="INTERNET CORPORATIVO" selected>INTERNET</option>
-              <option value="DATOS">DATOS</option>
-              <option value="ACCESO EMPRESARIAL">ACCESO EMPRESARIAL</option>
-            </select>
+            <label>Tipo de Servicio (Título):</label>
+            <select id="p-titulo" class="service-select" onchange="onServiceTypeChange(this.value)"></select>
+            <small id="service-template-warning" class="field-warning" hidden>⚠ La plantilla de este servicio está pendiente de validar por Ingeniería: revise VRF, RD y vpn-targets.</small>
           </div>
           <div class="form-group col-span-2">
             <label>ID del Servicio (identificador único):</label>
-            <input type="text" id="p-id-servicio" value="" placeholder="Ingrese el identificador del servicio" class="input-highlight" required>
+            <input type="text" id="p-id-servicio" value="" placeholder="Ingrese el identificador del servicio" class="input-highlight" maxlength="100" required>
           </div>
           <div class="form-group col-span-2">
             <label>Nombre del Cliente:</label>
@@ -73,7 +66,7 @@
           </div>
           <div class="form-group">
             <label>Diseñado Por (Ingeniero):</label>
-            <input type="text" id="p-disenador" value="INGENIERO DEMO">
+            <input type="text" id="p-disenador" value="" placeholder="Se completa con su nombre de operador">
           </div>
           <div class="form-group">
             <label>Número de Teléfono (Diseñador):</label>
@@ -81,25 +74,22 @@
           </div>
           <div class="form-group">
             <label>Fecha de Diseño (Calendario):</label>
-            <input type="date" id="p-fecha" style="max-width: 280px; font-weight: 600; cursor: pointer; color: #004085;">
+            <input type="date" id="p-fecha" class="date-input">
           </div>
           <div class="form-group col-span-2 mt-10">
-            <label style="font-weight: 700; color: #333; display: flex; align-items: center; justify-content: space-between;">
+            <label class="label-split">
               <span>📋 Factibilidad:</span>
-              <span style="font-size: 11px; font-weight: normal; color: #666;">Tip: Presiona <kbd class="kbd-hint">F2</kbd> para ver o editar el texto completo</span>
+              <span class="hint">Tip: Presiona <kbd class="kbd-hint">F2</kbd> para ver o editar el texto completo</span>
             </label>
-            
             <div class="factibilidad-compact-box">
               <input type="text" id="p-factibilidad-quick-paste" placeholder="Pega aquí la Factibilidad con Ctrl+V (o presiona F2 para abrir el editor)..." onpaste="handleQuickPaste(event)" onkeydown="handleQuickPasteKey(event)">
               <div id="factibilidad-status-badge" class="fact-badge empty">
                 <span class="badge-icon">○</span>
                 <span class="badge-text">Sin Factibilidad</span>
               </div>
-              <button type="button" class="btn btn-secondary btn-sm" onclick="openFactibilidadModal()" title="Presiona F2 para ver o editar">
-                👁️ Ver / Editar (F2)
-              </button>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="openFactibilidadModal()" title="Presiona F2 para ver o editar">👁️ Ver / Editar (F2)</button>
             </div>
-            <textarea id="p-factibilidad-bloque" style="display: none;"></textarea>
+            <textarea id="p-factibilidad-bloque" hidden></textarea>
           </div>
         </div>
       </div>
@@ -108,19 +98,17 @@
     <!-- TAB: UBICACIÓN -->
     <section class="tab-content" id="tab-ubicacion">
       <div class="card">
-        <div class="card-header">
-          <h3>Ubicación y Coordenadas del Cliente</h3>
-        </div>
+        <div class="card-header"><h3>Ubicación y Coordenadas del Cliente</h3></div>
         <div class="card-body">
           <div class="form-group">
             <label>Dirección Física de Instalación:</label>
-              <input type="text" id="u-direccion" value="DIRECCIÓN DE DEMOSTRACIÓN">
+            <input type="text" id="u-direccion" value="" placeholder="Dirección completa del sitio">
           </div>
           <div class="form-group">
             <label>Coordenadas GPS (Latitud, Longitud):</label>
             <div class="input-with-button">
-              <input type="text" id="u-coordenadas" value="">
-              <button class="btn btn-secondary" onclick="openMaps()">Ver en Google Maps</button>
+              <input type="text" id="u-coordenadas" value="" placeholder="14.6000, -90.5000">
+              <button type="button" class="btn btn-secondary" onclick="openMaps()">Ver en Google Maps</button>
             </div>
           </div>
         </div>
@@ -130,9 +118,7 @@
     <!-- TAB: SERVICIO -->
     <section class="tab-content" id="tab-servicio">
       <div class="card">
-        <div class="card-header">
-          <h3>Especificaciones Técnicas del Servicio</h3>
-        </div>
+        <div class="card-header"><h3>Especificaciones Técnicas del Servicio</h3></div>
         <div class="card-body grid-2">
           <div class="form-group">
             <label>Medio de Transmisión:</label>
@@ -147,26 +133,24 @@
             <input type="text" id="s-velocidad" value="300 MBPS">
           </div>
           <div class="form-group">
-            <label>Cantidad de IPs WAN asignadas:</label>
-            <input type="text" id="s-ips" value="1">
+            <label>Cantidad de IPs asignadas:</label>
+            <input type="number" id="s-ips" value="1" min="1" max="64">
           </div>
           <div class="form-group">
             <label>Equipo CPE Extremo Cliente:</label>
-            <input type="text" id="s-equipo" value="CISCO C921">
+            <input type="text" id="s-equipo" value="">
           </div>
           <div class="form-group col-span-2">
             <label>Dictamen de Factibilidad:</label>
-            <textarea id="s-factibilidad" rows="2">FACTIBLE SEGÚN VALIDACIÓN TÉCNICA DE DEMOSTRACIÓN</textarea>
+            <textarea id="s-factibilidad" rows="2" placeholder="Resultado de la validación técnica"></textarea>
           </div>
           <div class="form-group col-span-2">
             <label>Observaciones de Ingeniería:</label>
-            <input type="text" id="s-observaciones" value="ALTA DE IC">
+            <input type="text" id="s-observaciones" value="">
           </div>
           <div class="form-group col-span-2">
             <label>Servicios y Componentes Aceptados (uno por línea):</label>
-            <textarea id="s-items" rows="3">INTERNET CORPORATIVO LOCAL 300 MBS  (ACEPTADO)
-ARRENDAMIENTO EQUIPO  (ACEPTADO)
-MONITOREO ENLACE  (ACEPTADO)</textarea>
+            <textarea id="s-items" rows="3"></textarea>
           </div>
         </div>
       </div>
@@ -174,45 +158,51 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
 
     <!-- TAB: EQUIPAMIENTO -->
     <section class="tab-content" id="tab-equipamiento">
-      
-      <!-- IPAM Toolbar (Asignación automática desde Excel) -->
+
       <div class="ipam-toolbar">
         <div class="ipam-title">
-          <span>🌐</span> <strong>INVENTARIO DE IPs (EXCEL)</strong>
+          <span>🌐</span> <strong>INVENTARIO DE IPs (FIREBASE)</strong>
+          <span class="ipam-legend">Seleccione una o varias IPs libres (Ctrl/Cmd + clic). La primera seleccionada será la IP WAN.</span>
         </div>
         <div class="ipam-controls">
           <div class="ipam-field">
-            <label>Pestaña / Segmento /24:</label>
+            <label>Segmento /24:</label>
             <select id="ipam-sheet-select" onchange="onSheetSelected()"></select>
           </div>
           <div class="ipam-field">
-            <label>Subred / VLAN detectada:</label>
+            <label>Subred / VLAN:</label>
             <select id="ipam-block-select" onchange="onBlockSelected()"></select>
           </div>
-          <div class="ipam-field">
+          <div class="ipam-field ipam-field-wide">
             <label>IPs Disponibles:</label>
-            <select id="ipam-free-select" onchange="onFreeIPSelected()"></select>
+            <select id="ipam-free-select" multiple size="5" onchange="onFreeIPSelected()"></select>
           </div>
           <div class="ipam-actions">
-            <button class="btn btn-primary" onclick="assignFirstFreeIP()">⚡ Asignar Siguiente Libre</button>
-            <button class="btn btn-success" id="btn-reserve-ip" onclick="confirmIPReservation()">💾 Reservar en Excel</button>
+            <button type="button" class="btn btn-primary" onclick="assignFirstFreeIP()">⚡ Siguiente libre</button>
+            <button type="button" class="btn btn-success" id="btn-reserve-ip" onclick="confirmIPReservation()">💾 Reservar seleccionadas</button>
           </div>
         </div>
+        <details class="assigned-panel" id="assigned-panel">
+          <summary>IPs ocupadas en esta subred (<span id="assigned-count">0</span>) — liberar</summary>
+          <div class="table-responsive">
+            <table class="claro-table compact">
+              <thead><tr><th>IP</th><th>Servicio</th><th>Reservada por</th><th>Fecha</th><th>Acción</th></tr></thead>
+              <tbody id="assigned-tbody"></tbody>
+            </table>
+          </div>
+        </details>
       </div>
 
-      <!-- Network Parameters Form (Matching Claro GUI) -->
       <div class="card mt-15">
-        <div class="card-header">
-          <h3>Parámetros de Red y Enrutamiento (Equipamiento)</h3>
-        </div>
+        <div class="card-header"><h3>Parámetros de Red y Enrutamiento (Equipamiento)</h3></div>
         <div class="card-body grid-3">
           <div class="form-group">
             <label>Nombre de VRF:</label>
-            <input type="text" id="eq-vrf-name" value="INTERNET_GT_METRO">
+            <input type="text" id="eq-vrf-name" value="">
           </div>
           <div class="form-group">
             <label>Isla / Central:</label>
-            <input type="text" id="eq-isla" value="MONTE VERDE">
+            <input type="text" id="eq-isla" value="">
           </div>
           <div class="form-group">
             <label>RED WAN (con máscara CIDR):</label>
@@ -221,11 +211,11 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
 
           <div class="form-group">
             <label>RD (Route Distinguisher):</label>
-            <input type="text" id="eq-rd" value="6458:11270">
+            <input type="text" id="eq-rd" value="">
           </div>
           <div class="form-group">
             <label>Número de VLAN:</label>
-            <input type="text" id="eq-vlan-num" value="3740" class="input-highlight">
+            <input type="text" id="eq-vlan-num" value="" class="input-highlight">
           </div>
           <div class="form-group">
             <label>Gateway WAN:</label>
@@ -233,12 +223,12 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
           </div>
 
           <div class="form-group">
-            <label>Desc. VLAN / VRF:</label>
-            <input type="text" id="eq-desc-vlan" value="INTERNET_PEs_METROPOLITANO_ISLA_APP">
+            <label>Descripción VRF:</label>
+            <input type="text" id="eq-vrf-desc" value="">
           </div>
           <div class="form-group">
-            <label>IP LAN:</label>
-            <input type="text" id="eq-ip-lan" value="203.0.113.0/28 | EJEMPLO">
+            <label>Descripción VLAN:</label>
+            <input type="text" id="eq-desc-vlan" value="">
           </div>
           <div class="form-group">
             <label>IP WAN Asignada:</label>
@@ -246,32 +236,44 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
           </div>
 
           <div class="form-group">
-            <label>IP Loopback:</label>
-            <input type="text" id="eq-loopback" value="192.0.2.100/32">
+            <label>IP LAN (red | observación):</label>
+            <input type="text" id="eq-ip-lan" value="" placeholder="203.0.113.0/28 | CLIENTE">
           </div>
+          <div class="form-group">
+            <label>IP Loopback:</label>
+            <input type="text" id="eq-loopback" value="" placeholder="192.0.2.100/32">
+          </div>
+          <div class="form-group">
+            <label>IPs adicionales reservadas:</label>
+            <input type="text" id="eq-ips-adicionales" value="" class="input-highlight" readonly>
+          </div>
+
           <div class="form-group">
             <label>Pre-Shared Key (PSK):</label>
             <div class="input-with-button">
               <input type="password" id="eq-psk" value="" autocomplete="new-password">
-              <button class="btn btn-sm btn-secondary" onclick="generateRandomPSK()">🎲 Generar</button>
+              <button type="button" class="btn btn-sm btn-secondary" onclick="togglePSK()" title="Mostrar u ocultar">👁️</button>
+              <button type="button" class="btn btn-sm btn-secondary" onclick="generateRandomPSK()">🎲 Generar</button>
             </div>
           </div>
-          <div class="form-group">
+          <div class="form-group col-span-2">
             <label>VRF Gestor Raisecom (VLAN / Red):</label>
-            <input type="text" id="eq-gestor-info" value="VLAN 836 | 10.40.3.0/24 | GW: 10.40.3.1 | RAISECOM: 10.40.3.120">
+            <input type="text" id="eq-gestor-info" value="">
+          </div>
+          <div class="form-group col-span-3">
+            <label>VPN targets (uno por línea, p. ej. 6458:11270 export-extcommunity):</label>
+            <textarea id="eq-vpn-targets" rows="4" class="mono"></textarea>
           </div>
         </div>
       </div>
 
-      <!-- Equipment Table (Equipos Extremo Claro) -->
       <div class="card mt-15">
         <div class="card-header flex-between">
           <h3>Equipos extremo Claro</h3>
           <div class="table-actions">
-            <span class="label-info">Plantillas rápidas:</span>
-            <button class="btn btn-sm btn-outline" onclick="loadRoutePreset('carmen')">Central El Carmen</button>
-            <button class="btn btn-sm btn-outline" onclick="loadRoutePreset('monteverde')">Central Monte Verde</button>
-            <button class="btn btn-sm btn-primary" onclick="addEquipmentRow()">+ Agregar Fila</button>
+            <span class="label-info">Centrales:</span>
+            <span id="centrales-presets"></span>
+            <button type="button" class="btn btn-sm btn-primary" onclick="addEquipmentRow()">+ Agregar Fila</button>
           </div>
         </div>
         <div class="card-body p-0">
@@ -290,34 +292,29 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
                   <th style="width: 60px;">Acción</th>
                 </tr>
               </thead>
-              <tbody id="equipment-tbody">
-                <!-- Rows injected dynamically via JS -->
-              </tbody>
+              <tbody id="equipment-tbody"></tbody>
             </table>
           </div>
         </div>
       </div>
-
     </section>
 
     <!-- TAB: MEDIO -->
     <section class="tab-content" id="tab-medio">
       <div class="card">
-        <div class="card-header">
-          <h3>Detalles de Medio Físico y Enlace Óptico</h3>
-        </div>
+        <div class="card-header"><h3>Detalles de Medio Físico y Enlace</h3></div>
         <div class="card-body grid-2">
           <div class="form-group">
             <label>Equipo Óptico Demarcador (Raisecom):</label>
-            <input type="text" id="m-raisecom" value="RAISECOM RAX711-L">
+            <input type="text" id="m-raisecom" value="">
           </div>
           <div class="form-group">
-            <label>Puerto Óptico / Bandeja FO:</label>
-            <input type="text" id="m-puerto-fo" value="S15|P2 ==> FO">
+            <label>Tramo de enlace hacia el cliente (en la ruta):</label>
+            <input type="text" id="m-enlace" value="" placeholder="FO">
           </div>
           <div class="form-group col-span-2">
-            <label>Observaciones de Planta Externa / Fibra:</label>
-            <textarea id="m-obs-medio" rows="3">Tendido de fibra directo desde ODF Central El Carmen. Monitoreo activado en NMIS e ISE.</textarea>
+            <label>Observaciones de Planta Externa / Medio (opcional, se agrega bajo la ruta):</label>
+            <textarea id="m-obs-medio" rows="3"></textarea>
           </div>
         </div>
       </div>
@@ -327,48 +324,205 @@ MONITOREO ENLACE  (ACEPTADO)</textarea>
     <section class="tab-content" id="tab-generar">
       <div class="card">
         <div class="card-header flex-between">
-          <h3>Formato Final de Alta de Internet Corporativo</h3>
+          <h3 id="generar-title">Formato Final de Alta</h3>
           <div class="format-actions">
-            <button class="btn btn-primary" id="btn-update-format" onclick="updateGeneratedFormat()">🔄 Actualizar Vista Previa</button>
-            <button class="btn btn-success" id="btn-copy-format" onclick="copyFormatToClipboard()">📋 Copiar al Portapapeles</button>
-            <button class="btn btn-secondary" id="btn-download-format" onclick="downloadFormatTxt()">📥 Descargar .TXT</button>
+            <button type="button" class="btn btn-secondary" id="btn-update-format" onclick="updateGeneratedFormat()">🔄 Vista previa</button>
+            <button type="button" class="btn btn-primary" id="btn-register-alta" onclick="registerAlta()">✅ Registrar alta</button>
+            <button type="button" class="btn btn-success" id="btn-copy-format" onclick="copyFormatToClipboard()" disabled>📋 Copiar</button>
+            <button type="button" class="btn btn-secondary" id="btn-download-format" onclick="downloadFormatTxt()" disabled>📥 Descargar .TXT</button>
           </div>
         </div>
         <div class="card-body">
-          <div id="copy-alert" class="copy-alert">✅ ¡Formato copiado exitosamente al portapapeles!</div>
+          <div id="alta-status" class="alta-status" hidden></div>
           <textarea id="output-format-textarea" class="format-output-box" readonly spellcheck="false"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB: CONSULTAS -->
+    <section class="tab-content" id="tab-consultas">
+      <div class="grid-2 gap-15">
+        <div class="card">
+          <div class="card-header"><h3>Buscar por ID de servicio</h3></div>
+          <div class="card-body">
+            <form class="input-with-button" onsubmit="searchService(event)">
+              <input type="text" id="search-service-id" placeholder="ID del servicio" maxlength="100" aria-label="ID del servicio a buscar">
+              <button type="submit" class="btn btn-primary">Buscar</button>
+            </form>
+            <div id="search-results" class="results-box"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>Soporte: consultar operación</h3></div>
+          <div class="card-body">
+            <form class="input-with-button" onsubmit="lookupOperation(event)">
+              <input type="text" id="search-operation-id" placeholder="OP-AAAAMMDD-XXXXXXXXXXXX" aria-label="ID de operación">
+              <button type="submit" class="btn btn-primary">Consultar</button>
+            </form>
+            <div id="operation-result" class="results-box"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card mt-15">
+        <div class="card-header flex-between">
+          <h3>Últimas altas registradas</h3>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="loadAltasHistory()">↻ Actualizar</button>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="claro-table compact">
+              <thead><tr><th>Alta</th><th>Fecha</th><th>Servicio</th><th>Cliente</th><th>Tipo</th><th>IP WAN</th><th>Operador</th><th></th></tr></thead>
+              <tbody id="altas-tbody"></tbody>
+            </table>
+          </div>
         </div>
       </div>
     </section>
 
   </div>
 
-  <!-- MODAL FLOTANTE DE FACTIBILIDAD (ACTIVABLE CON F2) -->
-  <div id="factibilidad-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="factibilidad-modal-title" style="display: none;">
+  <footer class="app-footer">
+    <span id="footer-version">Claro CENAM Service Manager</span>
+    <span>Última operación: <button type="button" class="link-btn mono" id="last-operation-id" onclick="copyLastOperationId()" title="Copiar para soporte">—</button></span>
+  </footer>
+
+  <!-- MODAL: FACTIBILIDAD (F2) -->
+  <div id="factibilidad-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="factibilidad-modal-title" hidden>
     <div class="modal-container">
       <div class="modal-header">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 16px;">📋</span>
-          <h3 id="factibilidad-modal-title" style="margin: 0; font-size: 15px;">Texto de Factibilidad del Servicio</h3>
+        <div class="modal-title">
+          <span aria-hidden="true">📋</span>
+          <h3 id="factibilidad-modal-title">Texto de Factibilidad del Servicio</h3>
           <span class="badge-f2">Atajo: F2</span>
         </div>
-        <button type="button" class="btn-modal-close" onclick="closeFactibilidadModal()" title="Cerrar ventana">&times;</button>
+        <button type="button" class="btn-modal-close" onclick="closeModal('factibilidad-modal')" title="Cerrar ventana">&times;</button>
       </div>
       <div class="modal-body">
-        <p style="font-size: 12px; color: #555; margin-bottom: 10px;">
-          Este bloque se inserta automáticamente abajo de <i>ALTA DE INTERNET CORPORATIVO / DATOS / ACCESO EMPRESARIAL</i>. Puedes editarlo o reemplazarlo aquí:
-        </p>
-        <textarea id="modal-factibilidad-textarea" rows="18" style="width: 100%; font-family: Consolas, monospace; font-size: 12px; line-height: 1.45; padding: 12px; border: 1px solid #BFBFBF; border-radius: 4px; resize: vertical;"></textarea>
+        <p class="modal-help">Este bloque se inserta debajo del encabezado de ALTA. Puede editarlo o reemplazarlo aquí:</p>
+        <textarea id="modal-factibilidad-textarea" rows="18" class="mono modal-textarea"></textarea>
       </div>
       <div class="modal-footer">
-        <span id="modal-factibilidad-info" style="font-size: 11px; color: #666;"></span>
-        <div style="display: flex; gap: 10px;">
-          <button type="button" class="btn btn-secondary" onclick="closeFactibilidadModal()">Cerrar (Esc)</button>
+        <span id="modal-factibilidad-info" class="hint"></span>
+        <div class="modal-buttons">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('factibilidad-modal')">Cerrar (Esc)</button>
           <button type="button" class="btn btn-primary" onclick="saveFactibilidadModal()">💾 Guardar y Aplicar</button>
         </div>
       </div>
     </div>
   </div>
+
+  <!-- MODAL: OPERADOR -->
+  <div id="operator-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="operator-modal-title" hidden>
+    <form class="modal-container modal-sm" onsubmit="saveOperator(event)">
+      <div class="modal-header">
+        <div class="modal-title"><span aria-hidden="true">👤</span><h3 id="operator-modal-title">¿Quién está operando?</h3></div>
+      </div>
+      <div class="modal-body">
+        <p class="modal-help">Su nombre queda registrado en cada reserva, liberación, importación y alta para trazabilidad y soporte.</p>
+        <div class="form-group">
+          <label for="operator-input">Nombre y apellido:</label>
+          <input type="text" id="operator-input" maxlength="80" minlength="3" required autocomplete="name">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span></span>
+        <button type="submit" class="btn btn-primary">Continuar</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- MODAL: IMPORTAR -->
+  <div id="import-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="import-modal-title" hidden>
+    <form class="modal-container modal-md" onsubmit="submitImport(event)">
+      <div class="modal-header">
+        <div class="modal-title"><span aria-hidden="true">📂</span><h3 id="import-modal-title">Importar inventario de Excel a Firebase</h3></div>
+        <button type="button" class="btn-modal-close" onclick="closeModal('import-modal')" title="Cerrar">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="import-file">Archivo .xlsx (una hoja por segmento /24):</label>
+          <input type="file" id="import-file" accept=".xlsx" required>
+        </div>
+        <fieldset class="radio-group">
+          <legend>Modo de importación</legend>
+          <label><input type="radio" name="import-mode" value="merge" checked> <strong>Combinar (recomendado)</strong> — agrega y actualiza IPs; las IPs ya ocupadas en Firebase se conservan.</label>
+          <label><input type="radio" name="import-mode" value="replace"> <strong>Reemplazar</strong> — borra y vuelve a crear las hojas incluidas en el archivo.</label>
+        </fieldset>
+        <label class="confirm-line" id="import-confirm-line" hidden>
+          <input type="checkbox" id="import-confirm"> Entiendo que se borrarán las IPs actuales de las hojas importadas.
+        </label>
+        <div id="import-result" class="results-box"></div>
+      </div>
+      <div class="modal-footer">
+        <span class="hint">Tamaño máximo: <span id="import-max-mb">10</span> MB</span>
+        <div class="modal-buttons">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('import-modal')">Cerrar</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-import">Importar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- MODAL: LIBERAR IP -->
+  <div id="release-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="release-modal-title" hidden>
+    <form class="modal-container modal-sm" onsubmit="submitRelease(event)">
+      <div class="modal-header">
+        <div class="modal-title"><span aria-hidden="true">♻️</span><h3 id="release-modal-title">Liberar IP</h3></div>
+        <button type="button" class="btn-modal-close" onclick="closeModal('release-modal')" title="Cerrar">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-help" id="release-summary"></p>
+        <div class="form-group">
+          <label for="release-reason">Motivo de la liberación:</label>
+          <textarea id="release-reason" rows="2" minlength="3" maxlength="300" required placeholder="Ej.: baja del servicio, reserva duplicada"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span></span>
+        <div class="modal-buttons">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('release-modal')">Cancelar</button>
+          <button type="submit" class="btn btn-danger">Liberar IP</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- MODAL: VER ALTA -->
+  <div id="alta-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="alta-modal-title" hidden>
+    <div class="modal-container">
+      <div class="modal-header">
+        <div class="modal-title"><span aria-hidden="true">📄</span><h3 id="alta-modal-title">Alta</h3></div>
+        <button type="button" class="btn-modal-close" onclick="closeModal('alta-modal')" title="Cerrar">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-help" id="alta-modal-meta"></p>
+        <textarea id="alta-modal-text" rows="20" class="mono modal-textarea" readonly></textarea>
+      </div>
+      <div class="modal-footer">
+        <span></span>
+        <button type="button" class="btn btn-success" onclick="copyText(document.getElementById('alta-modal-text').value)">📋 Copiar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: CONFIRMACIÓN GENÉRICA -->
+  <div id="confirm-modal" class="modal-overlay" role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-title" hidden>
+    <div class="modal-container modal-sm">
+      <div class="modal-header">
+        <div class="modal-title"><span aria-hidden="true">❔</span><h3 id="confirm-modal-title">Confirmar</h3></div>
+      </div>
+      <div class="modal-body"><p id="confirm-modal-message" class="confirm-message"></p></div>
+      <div class="modal-footer">
+        <span></span>
+        <div class="modal-buttons">
+          <button type="button" class="btn btn-secondary" id="confirm-cancel">Cancelar</button>
+          <button type="button" class="btn btn-primary" id="confirm-accept">Confirmar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
   <script src="app.js"></script>
 </body>

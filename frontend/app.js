@@ -1,26 +1,200 @@
-// State variables
-let currentBlocks = [];
-let currentSelectedBlock = null;
-let currentSelectedFreeIP = null;
-let blocksRequestId = 0;
-let formatRequestId = 0;
+"use strict";
 
-document.addEventListener("DOMContentLoaded", () => {
+// ===========================================================================
+// Estado
+// ===========================================================================
+const state = {
+  config: null,
+  operator: "",
+  clientSession: "",
+  sheets: [],
+  blocks: [],
+  selectedBlock: null,
+  selectedFreeIPs: [],
+  reservedForService: new Map(), // ip -> service_id reservado en esta sesión
+  registeredAlta: null,          // { alta_id, text } del último registro vigente
+  releaseTarget: null,
+  blocksRequestId: 0,
+  formatRequestId: 0,
+};
+
+const STORAGE_KEYS = { operator: "claro.operator" };
+
+function storageGet(key) {
+  try { return window.localStorage.getItem(key) || ""; } catch { return ""; }
+}
+function storageSet(key, value) {
+  try { window.localStorage.setItem(key, value); } catch { /* almacenamiento no disponible */ }
+}
+
+function $(id) { return document.getElementById(id); }
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(attrs)) {
+    if (value === undefined || value === null || value === false) continue;
+    if (key === "class") node.className = value;
+    else if (key.startsWith("on") && typeof value === "function") node.addEventListener(key.slice(2), value);
+    else node.setAttribute(key, value === true ? "" : value);
+  }
+  for (const child of children.flat()) {
+    if (child === null || child === undefined || child === false) continue;
+    node.appendChild(typeof child === "string" || typeof child === "number" ? document.createTextNode(String(child)) : child);
+  }
+  return node;
+}
+
+function formatDate(iso) {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("es-GT", { dateStyle: "short", timeStyle: "short" });
+}
+
+// ===========================================================================
+// API con trazabilidad
+// ===========================================================================
+class ApiError extends Error {
+  constructor(message, operationId, status) {
+    super(message);
+    this.operationId = operationId;
+    this.status = status;
+  }
+}
+
+function setLastOperation(operationId) {
+  if (!operationId) return;
+  $("last-operation-id").textContent = operationId;
+}
+
+async function api(path, { method = "GET", json, formData, raw = false } = {}) {
+  const headers = { "X-Client-Session": state.clientSession };
+  if (state.operator) headers["X-Operator"] = encodeURIComponent(state.operator);
+  let body;
+  if (json !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(json);
+  } else if (formData) {
+    body = formData;
+  }
+  let response;
+  try {
+    response = await fetch(path, { method, headers, body });
+  } catch (err) {
+    throw new ApiError("No se pudo conectar con el servidor.", "", 0);
+  }
+  const operationId = response.headers.get("X-Operation-ID") || "";
+  if (method !== "GET" || !response.ok) setLastOperation(operationId);
+  if (!response.ok) {
+    let detail = `Error ${response.status}`;
+    try {
+      const data = await response.json();
+      detail = typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+    } catch { /* respuesta sin JSON */ }
+    throw new ApiError(detail, operationId, response.status);
+  }
+  if (raw) return { response, operationId };
+  const data = await response.json();
+  return { ...data, operation_id: data.operation_id || operationId };
+}
+
+// ===========================================================================
+// Notificaciones y diálogos
+// ===========================================================================
+function toast(message, type = "info", operationId = "") {
+  const container = $("toast-container");
+  const item = el("div", { class: `toast toast-${type}`, role: type === "error" ? "alert" : "status" },
+    el("div", { class: "toast-message" }, message),
+    operationId ? el("div", { class: "toast-op" },
+      "ID de operación: ",
+      el("button", { type: "button", class: "link-btn mono", title: "Copiar", onclick: () => copyText(operationId, "ID copiado") }, operationId)
+    ) : null,
+    el("button", { type: "button", class: "toast-close", "aria-label": "Cerrar", onclick: () => item.remove() }, "×")
+  );
+  container.appendChild(item);
+  const ttl = type === "error" ? 15000 : 6000;
+  setTimeout(() => item.remove(), ttl);
+}
+
+function showError(err, prefix = "") {
+  console.error(err);
+  const message = prefix ? `${prefix}: ${err.message}` : err.message;
+  toast(message, "error", err.operationId || "");
+}
+
+function openModal(id) {
+  const modal = $(id);
+  modal.hidden = false;
+  const focusable = modal.querySelector("input:not([type=hidden]), textarea, select, button.btn-primary");
+  if (focusable) focusable.focus();
+}
+
+function closeModal(id) {
+  $(id).hidden = true;
+}
+
+function confirmDialog(message, { title = "Confirmar", accept = "Confirmar", danger = false } = {}) {
+  return new Promise(resolve => {
+    $("confirm-modal-title").textContent = title;
+    $("confirm-modal-message").textContent = message;
+    const acceptBtn = $("confirm-accept");
+    const cancelBtn = $("confirm-cancel");
+    acceptBtn.textContent = accept;
+    acceptBtn.className = danger ? "btn btn-danger" : "btn btn-primary";
+    const finish = value => {
+      acceptBtn.onclick = null;
+      cancelBtn.onclick = null;
+      closeModal("confirm-modal");
+      resolve(value);
+    };
+    acceptBtn.onclick = () => finish(true);
+    cancelBtn.onclick = () => finish(false);
+    openModal("confirm-modal");
+    acceptBtn.focus();
+  });
+}
+
+async function copyText(text, okMessage = "Copiado al portapapeles") {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(okMessage, "success");
+  } catch {
+    toast("No se pudo copiar automáticamente. Selecciónelo y use Ctrl+C.", "warning");
+  }
+}
+
+function copyLastOperationId() {
+  const value = $("last-operation-id").textContent.trim();
+  if (value && value !== "—") copyText(value, "ID de operación copiado");
+}
+
+// ===========================================================================
+// Inicio
+// ===========================================================================
+document.addEventListener("DOMContentLoaded", async () => {
+  state.clientSession = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())).slice(0, 36);
   initAccessibility();
   initTabs();
-  initEquipmentTable();
-  initExcelUpload();
-  loadInitialData();
-  initFactibilidad();
+  initKeyboard();
   initDateField();
-  updateGenerationAvailability();
+  initImportModal();
+  initOperator();
+  updateFactibilidadBadge();
+
   document.body.addEventListener("input", event => {
-    if (event.target.id !== "output-format-textarea") {
-      markFormatStale();
-      updateGenerationAvailability();
-    }
+    if (event.target.closest(".modal-overlay") || event.target.id === "output-format-textarea") return;
+    markFormatStale();
+    updateGenerationAvailability();
   });
-  document.body.addEventListener("change", updateGenerationAvailability);
+  document.body.addEventListener("change", event => {
+    if (event.target.closest(".modal-overlay")) return;
+    updateGenerationAvailability();
+  });
+
+  await loadConfig();
+  updateGenerationAvailability();
+  await loadInventory();
+  loadAltasHistory();
 });
 
 function initAccessibility() {
@@ -28,500 +202,524 @@ function initAccessibility() {
   tabList.setAttribute("role", "tablist");
   document.querySelectorAll(".tab-btn").forEach(button => {
     const panelId = button.dataset.tab;
+    if (!button.id) button.id = `${panelId}-button`;
     button.setAttribute("role", "tab");
     button.setAttribute("aria-controls", panelId);
     button.setAttribute("aria-selected", String(button.classList.contains("active")));
-    const panel = document.getElementById(panelId);
+    const panel = $(panelId);
     panel.setAttribute("role", "tabpanel");
-    panel.setAttribute("aria-labelledby", button.id || `${panelId}-button`);
-    if (!button.id) button.id = `${panelId}-button`;
+    panel.setAttribute("aria-labelledby", button.id);
   });
-
   document.querySelectorAll(".form-group, .ipam-field").forEach(group => {
     const label = group.querySelector("label");
     const control = group.querySelector("input, select, textarea");
-    if (!label || !control) return;
-    if (!control.id) control.id = `field-${crypto.randomUUID()}`;
+    if (!label || !control || label.htmlFor) return;
+    if (!control.id) control.id = `field-${Math.random().toString(36).slice(2)}`;
     label.htmlFor = control.id;
   });
 }
 
-async function getApiError(response, fallback) {
+function initTabs() {
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+  });
+}
+
+function activateTab(tabId) {
+  document.querySelectorAll(".tab-btn").forEach(b => {
+    const active = b.dataset.tab === tabId;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-selected", String(active));
+  });
+  document.querySelectorAll(".tab-content").forEach(tc => tc.classList.toggle("active", tc.id === tabId));
+  if (tabId === "tab-generar" && !state.registeredAlta) updateGeneratedFormat();
+  if (tabId === "tab-consultas") loadAltasHistory();
+}
+
+function initKeyboard() {
+  document.addEventListener("keydown", e => {
+    if (e.key === "F2") {
+      e.preventDefault();
+      if ($("factibilidad-modal").hidden) openFactibilidadModal();
+      else closeModal("factibilidad-modal");
+    } else if (e.key === "Escape") {
+      for (const id of ["factibilidad-modal", "import-modal", "release-modal", "alta-modal"]) {
+        if (!$(id).hidden) closeModal(id);
+      }
+      if (!$("confirm-modal").hidden) $("confirm-cancel").click();
+    }
+  });
+}
+
+// ===========================================================================
+// Operador (sin login: nombre guardado en el navegador)
+// ===========================================================================
+function initOperator() {
+  setOperator(storageGet(STORAGE_KEYS.operator));
+  if (!state.operator) openOperatorModal();
+}
+
+function setOperator(name) {
+  state.operator = (name || "").trim().slice(0, 80);
+  $("operator-name").textContent = state.operator || "Sin operador";
+  $("operator-chip").classList.toggle("missing", !state.operator);
+  const designer = $("p-disenador");
+  if (state.operator && !designer.value.trim()) designer.value = state.operator.toUpperCase();
+}
+
+function openOperatorModal() {
+  $("operator-input").value = state.operator;
+  openModal("operator-modal");
+}
+
+function saveOperator(event) {
+  event.preventDefault();
+  const value = $("operator-input").value.trim();
+  if (value.length < 3) return;
+  setOperator(value);
+  storageSet(STORAGE_KEYS.operator, state.operator);
+  closeModal("operator-modal");
+  toast(`Operando como ${state.operator}`, "success");
+}
+
+function ensureOperator() {
+  if (state.operator) return true;
+  openOperatorModal();
+  toast("Indique su nombre de operador para continuar.", "warning");
+  return false;
+}
+
+// ===========================================================================
+// Configuración: plantillas de servicio y catálogo de centrales
+// ===========================================================================
+async function loadConfig() {
   try {
-    const data = await response.json();
-    return data.detail || fallback;
-  } catch {
-    return fallback;
+    state.config = await api("/api/config");
+  } catch (err) {
+    showError(err, "No se pudo cargar la configuración");
+    return;
+  }
+  const cfg = state.config;
+  $("footer-version").textContent = `Claro CENAM Service Manager v${cfg.version} · datos: ${cfg.backend === "memory" ? "memoria (demo)" : "Firebase"}`;
+  $("import-max-mb").textContent = cfg.max_upload_mb;
+
+  const select = $("p-titulo");
+  select.replaceChildren(...Object.entries(cfg.services).map(([name, tpl]) => new Option(tpl.label, name)));
+
+  const d = cfg.network_defaults;
+  $("eq-gestor-info").value = `VLAN ${d.vlan_gestor} | ${d.red_gestor} | GW: ${d.gw_gestor} | RAISECOM: ${d.ip_gestor_raisecom}`;
+  $("m-raisecom").value = d.equipo_raisecom;
+  $("m-enlace").value = d.enlace_medio;
+  $("s-equipo").value = d.equipo_cpe;
+
+  renderCentralPresets();
+  applyServiceTemplate(select.value);
+  if (cfg.centrales.length) loadCentral(cfg.centrales[0].id);
+}
+
+function renderCentralPresets() {
+  const container = $("centrales-presets");
+  const centrales = state.config ? state.config.centrales : [];
+  container.replaceChildren(...centrales.map(c =>
+    el("button", { type: "button", class: "btn btn-sm btn-outline", title: c.demo ? "Datos de demostración" : c.isla, onclick: () => loadCentral(c.id) },
+      c.nombre, c.demo ? " (demo)" : "")
+  ));
+}
+
+function loadCentral(centralId) {
+  const central = state.config.centrales.find(c => c.id === centralId);
+  if (!central) return;
+  $("equipment-tbody").replaceChildren();
+  if (central.isla) $("eq-isla").value = central.isla;
+  central.equipos.forEach(eq => addEquipmentRow(eq));
+  markFormatStale();
+}
+
+function applyServiceTemplate(typeName) {
+  if (!state.config) return;
+  const tpl = state.config.services[typeName];
+  if (!tpl) return;
+  $("eq-vrf-name").value = tpl.vrf_name;
+  $("eq-vrf-desc").value = tpl.vrf_desc;
+  $("eq-rd").value = tpl.rd;
+  $("eq-vpn-targets").value = tpl.vpn_targets.join("\n");
+  $("s-observaciones").value = tpl.observaciones;
+  const velocidad = $("s-velocidad").value.trim() || "300 MBPS";
+  const principal = tpl.item_principal.replace("{tipo}", tpl.label).replace("{velocidad}", velocidad);
+  $("s-items").value = [principal, ...tpl.items_adicionales].map(i => `${i}  (ACEPTADO)`).join("\n");
+  $("service-template-warning").hidden = !tpl.pendiente_validar;
+  $("generar-title").textContent = `Formato Final de Alta de ${tpl.banner}`;
+}
+
+function onServiceTypeChange(typeName) {
+  const factArea = $("p-factibilidad-bloque");
+  if (factArea.value) {
+    factArea.value = factArea.value.replace(/TITULO:\s*\*\*\*[^*]+\*\*\*/i, `TITULO:\t***${typeName}***`);
+  }
+  applyServiceTemplate(typeName);
+  markFormatStale();
+}
+
+// ===========================================================================
+// Inventario de IPs (Firestore)
+// ===========================================================================
+async function loadInventory(preferredSheet) {
+  const badge = $("inventory-badge");
+  try {
+    const data = await api("/api/sheets");
+    state.sheets = data.details || [];
+    const totalFree = state.sheets.reduce((acc, s) => acc + (s.available_count || 0), 0);
+    $("inventory-status").textContent = state.sheets.length
+      ? `${state.sheets.length} segmento(s) · ${totalFree} IPs libres`
+      : "Inventario vacío: importe un Excel";
+    badge.classList.toggle("empty", !state.sheets.length);
+    badge.classList.remove("error");
+
+    const sheetSelect = $("ipam-sheet-select");
+    const current = preferredSheet || sheetSelect.value;
+    sheetSelect.replaceChildren(...state.sheets.map(s =>
+      new Option(`${s.sheet} (${s.available_count} libres)`, s.sheet)));
+    if (!state.sheets.length) {
+      clearIPAMSelection("Sin inventario");
+      return;
+    }
+    sheetSelect.value = state.sheets.some(s => s.sheet === current) ? current : state.sheets[0].sheet;
+    await loadBlocksForSheet(sheetSelect.value);
+  } catch (err) {
+    badge.classList.add("error");
+    $("inventory-status").textContent = "Error al conectar con Firebase";
+    showError(err, "No se pudo cargar el inventario");
   }
 }
 
 function clearIPAMSelection(message = "Selecciona un segmento") {
-  currentBlocks = [];
-  currentSelectedBlock = null;
-  currentSelectedFreeIP = null;
-  document.getElementById("ipam-block-select").replaceChildren(new Option(message));
-  document.getElementById("ipam-free-select").replaceChildren(new Option("Sin IP seleccionada"));
-  document.getElementById("eq-red-wan").value = "";
-  document.getElementById("eq-gw-wan").value = "";
-  document.getElementById("eq-ip-wan").value = "";
-  document.getElementById("eq-vlan-num").value = "";
+  state.blocks = [];
+  state.selectedBlock = null;
+  state.selectedFreeIPs = [];
+  $("ipam-block-select").replaceChildren(new Option(message));
+  $("ipam-free-select").replaceChildren();
+  $("assigned-tbody").replaceChildren();
+  $("assigned-count").textContent = "0";
+  for (const id of ["eq-red-wan", "eq-gw-wan", "eq-ip-wan", "eq-ips-adicionales"]) $(id).value = "";
 }
 
-function markFormatStale() {
-  const output = document.getElementById("output-format-textarea");
-  if (output && output.value) output.dataset.stale = "true";
-}
-
-function getMissingRequiredFields() {
-  return Array.from(document.querySelectorAll("input[required], select[required], textarea[required]"))
-    .filter(control => !control.disabled && !control.checkValidity());
-}
-
-function updateGenerationAvailability() {
-  const missingFields = getMissingRequiredFields();
-  const canGenerate = missingFields.length === 0;
-  const generateTab = document.querySelector('[data-tab="tab-generar"]');
-  const previewButton = document.getElementById("btn-update-format");
-  const status = document.getElementById("generation-requirements-status");
-
-  generateTab.disabled = !canGenerate;
-  generateTab.setAttribute("aria-disabled", String(!canGenerate));
-  previewButton.disabled = !canGenerate;
-
-  if (canGenerate) {
-    generateTab.title = "Generar formato con los datos actuales del cliente";
-    status.textContent = "Todos los campos requeridos están completos.";
-    status.className = "generation-status ready";
-  } else {
-    const labels = missingFields.map(control => {
-      const label = document.querySelector(`label[for="${control.id}"]`);
-      return label ? label.textContent.trim().replace(/:$/, "") : control.name || control.id;
-    });
-    const message = `Completa ${missingFields.length} campo(s) requerido(s): ${labels.join(", ")}`;
-    generateTab.title = message;
-    status.textContent = message;
-    status.className = "generation-status pending";
-  }
-}
-
-// Tab switching logic
-function initTabs() {
-  const tabBtns = document.querySelectorAll(".tab-btn");
-  tabBtns.forEach(btn => {
-    btn.addEventListener("click", () => {
-      tabBtns.forEach(b => b.classList.remove("active"));
-      tabBtns.forEach(b => b.setAttribute("aria-selected", "false"));
-      document.querySelectorAll(".tab-content").forEach(tc => tc.classList.remove("active"));
-      
-      btn.classList.add("active");
-      btn.setAttribute("aria-selected", "true");
-      const targetTabId = btn.getAttribute("data-tab");
-      const targetContent = document.getElementById(targetTabId);
-      if (targetContent) {
-        targetContent.classList.add("active");
-      }
-      
-      // Auto-update format if switching to generate tab
-      if (targetTabId === "tab-generar") {
-        updateGeneratedFormat();
-      }
-    });
-  });
-}
-
-// Initial Data Load
-async function loadInitialData() {
-  try {
-    const res = await fetch("/api/sheets");
-    if (!res.ok) throw new Error("Error al obtener hojas de cálculo");
-    const data = await res.json();
-    
-    document.getElementById("excel-filename").textContent = data.current_file || "Inventario Activo";
-    
-    const sheetSelect = document.getElementById("ipam-sheet-select");
-    sheetSelect.innerHTML = "";
-    data.sheets.forEach(sheet => {
-      const opt = document.createElement("option");
-      opt.value = sheet;
-      opt.textContent = sheet;
-      sheetSelect.appendChild(opt);
-    });
-    
-    if (data.sheets.length > 0) {
-      await loadBlocksForSheet(data.sheets[0]);
-    }
-  } catch (err) {
-    console.error(err);
-    document.getElementById("excel-filename").textContent = "Error al conectar con servidor";
-  }
-}
-
-// Load blocks for selected sheet
-async function loadBlocksForSheet(sheetName) {
-  const requestId = ++blocksRequestId;
+async function loadBlocksForSheet(sheetName, preferredSegment) {
+  const requestId = ++state.blocksRequestId;
+  const previousSegment = preferredSegment || (state.selectedBlock && state.selectedBlock.segment_id);
   clearIPAMSelection("Cargando subredes...");
   try {
-    const res = await fetch(`/api/blocks?sheet=${encodeURIComponent(sheetName)}`);
-    if (!res.ok) throw new Error("Error al cargar subredes");
-    const data = await res.json();
-    if (requestId !== blocksRequestId) return;
-    currentBlocks = data.blocks || [];
-    
-    const blockSelect = document.getElementById("ipam-block-select");
-    blockSelect.innerHTML = "";
-    
-    if (currentBlocks.length === 0) {
-      const opt = document.createElement("option");
-      opt.textContent = "No se detectaron subredes";
-      blockSelect.appendChild(opt);
+    const data = await api(`/api/blocks?sheet=${encodeURIComponent(sheetName)}`);
+    if (requestId !== state.blocksRequestId) return;
+    state.blocks = data.blocks || [];
+    const blockSelect = $("ipam-block-select");
+    if (!state.blocks.length) {
       clearIPAMSelection("No se detectaron subredes");
       return;
     }
-    
-    currentBlocks.forEach((b, idx) => {
-      const opt = document.createElement("option");
-      opt.value = idx;
-      const vlanText = b.vlan ? `(VLAN ${b.vlan})` : "";
-      opt.textContent = `${b.network_ip} ${vlanText} - [${b.available_count} libres]`;
-      blockSelect.appendChild(opt);
-    });
-    
-    selectBlock(0);
+    blockSelect.replaceChildren(...state.blocks.map((b, idx) => {
+      const vlanText = b.vlan ? ` (VLAN ${b.vlan})` : "";
+      return new Option(`${b.network_ip}${vlanText} — ${b.available_count} libres`, String(idx));
+    }));
+    let idx = state.blocks.findIndex(b => b.segment_id === previousSegment);
+    if (idx < 0) idx = Math.max(0, state.blocks.findIndex(b => b.available_count > 0));
+    blockSelect.value = String(idx);
+    selectBlock(idx);
   } catch (err) {
-    console.error(err);
-    if (requestId === blocksRequestId) clearIPAMSelection("Error al cargar subredes");
-    throw err;
+    if (requestId === state.blocksRequestId) clearIPAMSelection("Error al cargar subredes");
+    showError(err, "No se pudieron cargar las subredes");
   }
 }
 
 function onSheetSelected() {
-  const sheetName = document.getElementById("ipam-sheet-select").value;
-  loadBlocksForSheet(sheetName);
+  loadBlocksForSheet($("ipam-sheet-select").value);
 }
 
 function onBlockSelected() {
-  const idx = parseInt(document.getElementById("ipam-block-select").value, 10);
-  selectBlock(idx);
+  selectBlock(parseInt($("ipam-block-select").value, 10));
 }
 
 function selectBlock(idx) {
-  if (!currentBlocks[idx]) {
+  const block = state.blocks[idx];
+  if (!block) {
     clearIPAMSelection();
     return;
   }
-  const b = currentBlocks[idx];
-  currentSelectedBlock = b;
-  
-  // Populate Equipamiento fields
-  document.getElementById("eq-red-wan").value = b.network_ip;
-  document.getElementById("eq-gw-wan").value = b.gateway_ip || "";
-  document.getElementById("eq-vlan-num").value = b.vlan || "";
-  
-  // Populate Free IPs dropdown
-  const freeSelect = document.getElementById("ipam-free-select");
-  freeSelect.innerHTML = "";
-  
-  if (b.available_ips.length === 0) {
-    const opt = document.createElement("option");
-    opt.textContent = "¡Subred LLENA (0 libres)!";
-    freeSelect.appendChild(opt);
-    currentSelectedFreeIP = null;
-    document.getElementById("eq-ip-wan").value = "";
+  state.selectedBlock = block;
+  $("eq-red-wan").value = block.network_ip;
+  $("eq-gw-wan").value = block.gateway_ip || "";
+  $("eq-vlan-num").value = block.vlan || "";
+
+  const freeSelect = $("ipam-free-select");
+  if (!block.available_ips.length) {
+    freeSelect.replaceChildren(new Option("¡Subred llena (0 libres)!", ""));
+    freeSelect.disabled = true;
   } else {
-    b.available_ips.forEach((ipObj, ipIdx) => {
-      const opt = document.createElement("option");
-      opt.value = ipIdx;
-      opt.textContent = `${ipObj.ip} (Octeto ${ipObj.octet})`;
-      freeSelect.appendChild(opt);
-    });
-    currentSelectedFreeIP = b.available_ips[0];
-    document.getElementById("eq-ip-wan").value = b.available_ips[0].ip;
+    freeSelect.disabled = false;
+    freeSelect.replaceChildren(...block.available_ips.map(ipObj => new Option(`${ipObj.ip}  (octeto ${ipObj.octet})`, ipObj.ip)));
   }
+  setSelectedFreeIPs(block.available_ips.length ? [block.available_ips[0].ip] : []);
+  renderAssignedTable(block);
+  markFormatStale();
+}
+
+function setSelectedFreeIPs(ips) {
+  state.selectedFreeIPs = ips;
+  const freeSelect = $("ipam-free-select");
+  for (const option of freeSelect.options) option.selected = ips.includes(option.value);
+  $("eq-ip-wan").value = ips[0] || "";
+  $("eq-ips-adicionales").value = ips.slice(1).join(", ");
 }
 
 function onFreeIPSelected() {
-  if (!currentSelectedBlock || !currentSelectedBlock.available_ips) return;
-  const ipIdx = parseInt(document.getElementById("ipam-free-select").value, 10);
-  const chosen = currentSelectedBlock.available_ips[ipIdx];
-  if (chosen) {
-    currentSelectedFreeIP = chosen;
-    document.getElementById("eq-ip-wan").value = chosen.ip;
-  }
+  const selected = Array.from($("ipam-free-select").selectedOptions).map(o => o.value).filter(Boolean);
+  setSelectedFreeIPs(selected);
+  markFormatStale();
 }
 
 function assignFirstFreeIP() {
-  if (!currentSelectedBlock || !currentSelectedBlock.available_ips.length) {
-    alert("No hay IPs libres disponibles en este segmento.");
+  const block = state.selectedBlock;
+  if (!block || !block.available_ips.length) {
+    toast("No hay IPs libres en esta subred.", "warning");
     return;
   }
-  const first = currentSelectedBlock.available_ips[0];
-  document.getElementById("ipam-free-select").value = 0;
-  currentSelectedFreeIP = first;
-  document.getElementById("eq-ip-wan").value = first.ip;
-  alert(`✅ Se asignó la primera IP libre: ${first.ip}`);
+  const count = Math.min(Math.max(parseInt($("s-ips").value, 10) || 1, 1), block.available_ips.length);
+  setSelectedFreeIPs(block.available_ips.slice(0, count).map(i => i.ip));
+  toast(`Seleccionada(s): ${state.selectedFreeIPs.join(", ")}. Pulse “Reservar” para confirmarlas.`, "info");
+}
+
+function renderAssignedTable(block) {
+  const rows = block.assigned_ips.map(item => el("tr", {},
+    el("td", { class: "mono" }, item.ip),
+    el("td", {}, item.id || ""),
+    el("td", {}, item.assigned_by || ""),
+    el("td", {}, formatDate(item.assigned_at)),
+    el("td", {}, el("button", { type: "button", class: "btn-danger-sm", onclick: () => openReleaseModal(item) }, "Liberar"))
+  ));
+  $("assigned-tbody").replaceChildren(...rows);
+  $("assigned-count").textContent = String(block.assigned_ips.length);
 }
 
 async function confirmIPReservation() {
-  if (!currentSelectedBlock || !currentSelectedFreeIP) {
-    alert("Por favor selecciona una IP libre primero.");
+  if (!ensureOperator()) return;
+  const block = state.selectedBlock;
+  const ips = state.selectedFreeIPs;
+  if (!block || !ips.length) {
+    toast("Seleccione al menos una IP libre.", "warning");
     return;
   }
-  const clientId = document.getElementById("p-id-servicio").value.trim();
-  if (!clientId) {
-    alert("Debes ingresar el 'ID del Servicio' en la pestaña Principal antes de reservar la IP.");
+  const serviceId = $("p-id-servicio").value.trim();
+  if (!serviceId) {
+    toast("Ingrese el ID del Servicio en la pestaña Principal antes de reservar.", "warning");
+    activateTab("tab-principal");
+    $("p-id-servicio").focus();
     return;
   }
-  
-  const selectedIP = currentSelectedFreeIP.ip;
-  const selectedSheet = currentSelectedBlock.sheet_name;
-  if (document.getElementById("eq-ip-wan").value.trim() !== selectedIP) {
-    alert("La IP WAN fue editada manualmente. Vuelve a seleccionarla desde el inventario antes de reservar.");
-    return;
-  }
-  const ok = confirm(`¿Deseas reservar la IP ${selectedIP} en el Excel para el ID de servicio '${clientId}'?`);
+  const ok = await confirmDialog(
+    `Se reservarán ${ips.length} IP(s) para el servicio “${serviceId}”:\n${ips.join(", ")}\n\nLa primera será la IP WAN.`,
+    { title: "Reservar IPs", accept: "Reservar" });
   if (!ok) return;
 
-  const reserveButton = document.getElementById("btn-reserve-ip");
-  reserveButton.disabled = true;
+  const button = $("btn-reserve-ip");
+  button.disabled = true;
   try {
-    const res = await fetch("/api/assign-ip", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sheet_name: selectedSheet,
-        ip: selectedIP,
-        client_id: clientId
-      })
-    });
-    
-    if (!res.ok) {
-      throw new Error(await getApiError(res, "Error al asignar IP en Excel"));
-    }
-    
-    alert(`IP ${selectedIP} reservada con éxito para ${clientId}.`);
-    // Reload sheet to refresh available counts
-    await loadBlocksForSheet(selectedSheet);
+    const result = await api("/api/reservations", { method: "POST", json: { ips, service_id: serviceId, purpose: "WAN" } });
+    ips.forEach(ip => state.reservedForService.set(ip, serviceId));
+    toast(result.message, "success", result.operation_id);
+    const sheet = block.sheet_name;
+    await loadInventory(sheet);
+    // conservar la selección reservada en el formulario
+    $("eq-ip-wan").value = ips[0];
+    $("eq-ips-adicionales").value = ips.slice(1).join(", ");
+    $("eq-red-wan").value = block.network_ip;
+    $("eq-gw-wan").value = block.gateway_ip || "";
+    state.selectedFreeIPs = [];
+    for (const option of $("ipam-free-select").options) option.selected = false;
   } catch (err) {
-    alert(`Error: ${err.message}`);
+    showError(err, "No se pudo reservar");
+    if (err.status === 409) loadBlocksForSheet(block.sheet_name, block.segment_id);
   } finally {
-    reserveButton.disabled = false;
+    button.disabled = false;
   }
 }
 
-// Excel Upload Handler
-function initExcelUpload() {
-  const fileInput = document.getElementById("excel-file-input");
-  fileInput.addEventListener("change", async (e) => {
-    if (!e.target.files.length) return;
-    const file = e.target.files[0];
-    if (!file.name.toLowerCase().endsWith(".xlsx")) {
-      alert("Selecciona un archivo Excel con extensión .xlsx.");
-      e.target.value = "";
-      return;
-    }
-    const formData = new FormData();
-    formData.append("file", file);
-    
-    document.getElementById("excel-filename").textContent = `Cargando ${file.name}...`;
-    
-    try {
-      const res = await fetch("/api/upload-excel", {
-        method: "POST",
-        body: formData
-      });
-      
-      if (!res.ok) throw new Error(await getApiError(res, "Error al subir archivo"));
-      const data = await res.json();
-      
-      document.getElementById("excel-filename").textContent = data.filename;
-      
-      const sheetSelect = document.getElementById("ipam-sheet-select");
-      sheetSelect.innerHTML = "";
-      data.sheets.forEach(sheet => {
-        const opt = document.createElement("option");
-        opt.value = sheet;
-        opt.textContent = sheet;
-        sheetSelect.appendChild(opt);
-      });
-      
-      if (data.sheets.length > 0) {
-        await loadBlocksForSheet(data.sheets[0]);
-      }
-      alert(`Archivo Excel '${file.name}' cargado con éxito.`);
-    } catch (err) {
-      console.error(err);
-      alert(`Error al cargar Excel: ${err.message}`);
-      document.getElementById("excel-filename").textContent = "Error de archivo";
-    }
+function openReleaseModal(item) {
+  if (!ensureOperator()) return;
+  state.releaseTarget = item;
+  $("release-summary").textContent = `IP ${item.ip} — servicio ${item.id}. Quedará disponible para otros servicios.`;
+  $("release-reason").value = "";
+  openModal("release-modal");
+}
+
+async function submitRelease(event) {
+  event.preventDefault();
+  const item = state.releaseTarget;
+  if (!item) return;
+  try {
+    const result = await api("/api/reservations/release", {
+      method: "POST",
+      json: { ips: [item.ip], service_id: item.id, reason: $("release-reason").value.trim() },
+    });
+    closeModal("release-modal");
+    state.reservedForService.delete(item.ip);
+    toast(result.message, "success", result.operation_id);
+    await loadInventory(state.selectedBlock ? state.selectedBlock.sheet_name : undefined);
+  } catch (err) {
+    showError(err, "No se pudo liberar");
+  }
+}
+
+// --- Importar / exportar ---------------------------------------------------
+function initImportModal() {
+  document.querySelectorAll('input[name="import-mode"]').forEach(radio => {
+    radio.addEventListener("change", () => {
+      const replace = document.querySelector('input[name="import-mode"]:checked').value === "replace";
+      $("import-confirm-line").hidden = !replace;
+      $("import-confirm").required = replace;
+    });
   });
 }
 
-// Equipment Table management
-function initEquipmentTable() {
-  loadRoutePreset("carmen");
+function openImportModal() {
+  if (!ensureOperator()) return;
+  $("import-result").replaceChildren();
+  $("import-file").value = "";
+  openModal("import-modal");
 }
 
+async function submitImport(event) {
+  event.preventDefault();
+  const file = $("import-file").files[0];
+  if (!file) return;
+  if (!file.name.toLowerCase().endsWith(".xlsx")) {
+    toast("Seleccione un archivo .xlsx.", "warning");
+    return;
+  }
+  const mode = document.querySelector('input[name="import-mode"]:checked').value;
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("mode", mode);
+  formData.append("confirm_replace", String($("import-confirm").checked));
+
+  const button = $("btn-submit-import");
+  button.disabled = true;
+  button.textContent = "Importando...";
+  const resultBox = $("import-result");
+  resultBox.replaceChildren(el("p", {}, "Procesando el archivo y cargando a Firebase..."));
+  try {
+    const r = await api("/api/inventory/import", { method: "POST", formData });
+    resultBox.replaceChildren(
+      el("p", { class: "result-ok" }, `✅ ${r.message}`),
+      el("ul", {},
+        el("li", {}, `Importación: `, el("span", { class: "mono" }, r.import_id), ` · modo ${r.mode}`),
+        el("li", {}, `Hojas: ${r.sheets.join(", ")}`),
+        r.ignored_sheets.length ? el("li", {}, `Hojas ignoradas (nombre no es una red): ${r.ignored_sheets.join(", ")}`) : null,
+        el("li", {}, `Subredes: ${r.segments} · IPs escritas: ${r.ips_written} · sin cambios: ${r.ips_unchanged} · eliminadas: ${r.ips_deleted}`),
+        el("li", {}, `Totales: ${r.totals.disponibles} libres, ${r.totals.ocupadas} ocupadas, ${r.totals.gateways} gateways`),
+        el("li", {}, `ID de operación: `, el("span", { class: "mono" }, r.operation_id)),
+      ),
+      r.conflicts_count ? el("details", { open: true },
+        el("summary", {}, `⚠ ${r.conflicts_count} conflicto(s): se conservó el valor de Firebase`),
+        el("ul", { class: "conflicts" }, ...r.conflicts.slice(0, 50).map(c =>
+          el("li", { class: "mono" }, `${c.ip}: Firebase=${c.firestore} · Excel=${c.excel}`)))
+      ) : null,
+    );
+    toast("Inventario importado a Firebase.", "success", r.operation_id);
+    await loadInventory();
+  } catch (err) {
+    resultBox.replaceChildren(el("p", { class: "result-error" }, `❌ ${err.message}`),
+      err.operationId ? el("p", {}, "ID de operación: ", el("span", { class: "mono" }, err.operationId)) : null);
+    showError(err, "Error al importar");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Importar";
+  }
+}
+
+async function exportInventory() {
+  try {
+    const { response, operationId } = await api("/api/inventory/export", { raw: true });
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="([^"]+)"/);
+    downloadBlob(blob, match ? match[1] : "inventario_ips.xlsx");
+    setLastOperation(operationId);
+    toast("Inventario exportado.", "success", operationId);
+  } catch (err) {
+    showError(err, "No se pudo exportar");
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = el("a", { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// ===========================================================================
+// Equipos extremo Claro
+// ===========================================================================
 function getEquipmentRowsData() {
-  const tbody = document.getElementById("equipment-tbody");
-  const rows = tbody.querySelectorAll("tr");
-  const list = [];
-  rows.forEach(tr => {
-    const inputs = tr.querySelectorAll("input");
-    if (inputs.length >= 8) {
-      list.push({
-        no: inputs[0].value.trim(),
-        rol: inputs[1].value.trim(),
-        marca: inputs[2].value.trim(),
-        modelo: inputs[3].value.trim(),
-        hostname: inputs[4].value.trim(),
-        ip_admon: inputs[5].value.trim(),
-        int_in: inputs[6].value.trim(),
-        int_out: inputs[7].value.trim()
-      });
-    }
+  return Array.from($("equipment-tbody").querySelectorAll("tr")).map(tr => {
+    const v = Array.from(tr.querySelectorAll("input")).map(i => i.value.trim());
+    return { no: v[0], rol: v[1], marca: v[2], modelo: v[3], hostname: v[4], ip_admon: v[5], int_in: v[6], int_out: v[7] };
   });
-  return list;
 }
 
 function addEquipmentRow(data = {}) {
-  const tbody = document.getElementById("equipment-tbody");
-  const currentCount = tbody.querySelectorAll("tr").length + 1;
-  const tr = document.createElement("tr");
-  
-  const values = [data.no || currentCount, data.rol || "SW", data.marca || "HUAWEI", data.modelo || "ATN 980C", data.hostname || "", data.ip_admon || "", data.int_in || "", data.int_out || ""];
-  values.forEach((value, index) => {
-    const cell = document.createElement("td");
-    const input = document.createElement("input");
-    input.type = "text";
-    input.value = value;
-    input.setAttribute("aria-label", document.querySelectorAll("#equipment-table th")[index].textContent.trim());
-    cell.appendChild(input);
-    tr.appendChild(cell);
-  });
-  const actionCell = document.createElement("td");
-  actionCell.style.textAlign = "center";
-  const removeButton = document.createElement("button");
-  removeButton.className = "btn-danger-sm";
-  removeButton.type = "button";
-  removeButton.textContent = "Eliminar";
-  removeButton.addEventListener("click", () => tr.remove());
-  actionCell.appendChild(removeButton);
-  tr.appendChild(actionCell);
+  const tbody = $("equipment-tbody");
+  const headers = document.querySelectorAll("#equipment-table th");
+  const values = [data.no || tbody.querySelectorAll("tr").length + 1, data.rol || "", data.marca || "", data.modelo || "",
+    data.hostname || "", data.ip_admon || "", data.int_in || "", data.int_out || ""];
+  const tr = el("tr", {}, ...values.map((value, index) =>
+    el("td", {}, el("input", { type: "text", value: String(value), "aria-label": headers[index].textContent.trim() }))));
+  tr.appendChild(el("td", { class: "center" },
+    el("button", { type: "button", class: "btn-danger-sm", onclick: () => { tr.remove(); markFormatStale(); } }, "Eliminar")));
   tbody.appendChild(tr);
 }
 
-function loadRoutePreset(presetName) {
-  const tbody = document.getElementById("equipment-tbody");
-  tbody.innerHTML = "";
-  
-  if (presetName === "carmen") {
-    // Preset matching Central El Carmen example
-    document.getElementById("eq-isla").value = "CARMEN";
-    const carmenData = [
-      { no: "1", rol: "PE", marca: "HUAWEI", modelo: "NE40E", hostname: "PE-DEMO-01", ip_admon: "192.0.2.10", int_in: "", int_out: "" },
-      { no: "2", rol: "PE", marca: "HUAWEI", modelo: "NE40E", hostname: "PE-DEMO-02", ip_admon: "192.0.2.11", int_in: "", int_out: "" },
-      { no: "3", rol: "SW", marca: "HUAWEI", modelo: "ATN980C", hostname: "SW-DEMO-01", ip_admon: "192.0.2.12", int_in: "", int_out: "Eth-Trunk12" },
-      { no: "4", rol: "TRÁFICO", marca: "CTC", modelo: "FRM220A-07", hostname: "TRAFICO-DEMO-01", ip_admon: "192.0.2.13", int_in: "", int_out: "S15|P2" }
-    ];
-    carmenData.forEach(eq => addEquipmentRow(eq));
-  } else if (presetName === "monteverde") {
-    // Preset matching Service Manager screenshot
-    document.getElementById("eq-isla").value = "MONTE VERDE";
-    const mvData = [
-      { no: "1", rol: "PE", marca: "HUAWEI", modelo: "NE40E-X8A", hostname: "PE-DEMO-03", ip_admon: "198.51.100.10", int_in: "", int_out: "" },
-      { no: "2", rol: "SW", marca: "HUAWEI", modelo: "ATN 980C", hostname: "SW-DEMO-02", ip_admon: "198.51.100.11", int_in: "", int_out: "Eth-Trunk3" },
-      { no: "3", rol: "SW", marca: "CTC", modelo: "FRM220A-02", hostname: "SW-DEMO-03", ip_admon: "198.51.100.12", int_in: "", int_out: "S11|P2" }
-    ];
-    mvData.forEach(eq => addEquipmentRow(eq));
-  }
-}
-
-// Pre-Shared Key Generator
 function generateRandomPSK() {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   const values = new Uint32Array(20);
   crypto.getRandomValues(values);
-  const psk = Array.from(values, value => chars[value % chars.length]).join("");
-  document.getElementById("eq-psk").value = psk;
+  $("eq-psk").value = Array.from(values, value => chars[value % chars.length]).join("");
+  markFormatStale();
 }
 
-// Service Type Selection from Dropdown (INTERNET, DATOS, ACCESO EMPRESARIAL)
-function onServiceTypeChange(typeName) {
-  // Actualizar la línea de TITULO en el bloque de factibilidad si está presente
-  const factArea = document.getElementById("p-factibilidad-bloque");
-  if (factArea && factArea.value) {
-    factArea.value = factArea.value.replace(/TITULO:\s*\*\*\*[^*]+\*\*\*/i, `TITULO:\t***${typeName}***`);
-  }
-  
-  // Actualizar servicios aceptados
-  const itemsArea = document.getElementById("s-items");
-  if (itemsArea) {
-    const velocidad = document.getElementById("s-velocidad") ? document.getElementById("s-velocidad").value : "300 MBPS";
-    itemsArea.value = `${typeName} LOCAL ${velocidad}  (ACEPTADO)\nARRENDAMIENTO EQUIPO  (ACEPTADO)\nMONITOREO ENLACE  (ACEPTADO)`;
-  }
-  
-  // Si la pestaña de generar formato está visible, actualizarla
-  const tabGenerar = document.getElementById("tab-generar");
-  if (tabGenerar && tabGenerar.classList.contains("active")) {
-    updateGeneratedFormat();
-  }
+function togglePSK() {
+  const input = $("eq-psk");
+  input.type = input.type === "password" ? "text" : "password";
 }
 
-// Factibilidad & Modal (F2) Handling
-function initFactibilidad() {
-  updateFactibilidadBadge();
-
-  // Keyboard shortcut listener: F2 to toggle, Esc to close
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "F2") {
-      e.preventDefault();
-      const modal = document.getElementById("factibilidad-modal");
-      if (modal && modal.style.display === "flex") {
-        closeFactibilidadModal();
-      } else {
-        openFactibilidadModal();
-      }
-    } else if (e.key === "Escape") {
-      const modal = document.getElementById("factibilidad-modal");
-      if (modal && modal.style.display === "flex") {
-        closeFactibilidadModal();
-      }
-    }
-  });
-}
-
+// ===========================================================================
+// Factibilidad (F2)
+// ===========================================================================
 function handleQuickPaste(e) {
   e.preventDefault();
   const pasteData = (e.clipboardData || window.clipboardData).getData("text");
-  if (pasteData && pasteData.trim()) {
-    const hiddenArea = document.getElementById("p-factibilidad-bloque");
-    hiddenArea.value = pasteData;
-    updateFactibilidadBadge();
-    
-    // Detectar título si viene en el texto pegado
-    const titleMatch = pasteData.match(/TITULO:\s*\*\*\*([^*]+)\*\*\*/i);
-    if (titleMatch) {
-      const detectedTitle = titleMatch[1].trim();
-      const selectElem = document.getElementById("p-titulo");
-      if (selectElem) {
-        for (let opt of selectElem.options) {
-          if (detectedTitle.toUpperCase().includes(opt.text.toUpperCase())) {
-            selectElem.value = opt.value;
-            break;
-          }
+  if (!pasteData || !pasteData.trim()) return;
+  $("p-factibilidad-bloque").value = pasteData;
+  updateFactibilidadBadge();
+  const titleMatch = pasteData.match(/TITULO:\s*\*\*\*([^*]+)\*\*\*/i);
+  if (titleMatch) {
+    const detected = titleMatch[1].trim().toUpperCase();
+    const select = $("p-titulo");
+    for (const opt of select.options) {
+      if (detected.includes(opt.value.toUpperCase()) || detected.includes(opt.text.toUpperCase())) {
+        if (select.value !== opt.value) {
+          select.value = opt.value;
+          applyServiceTemplate(opt.value);
         }
+        break;
       }
     }
-    
-    const quickInput = document.getElementById("p-factibilidad-quick-paste");
-    quickInput.value = "";
-    quickInput.placeholder = "✅ Factibilidad cargada con éxito. Presiona F2 para ver.";
-    
-    const tabGenerar = document.getElementById("tab-generar");
-    if (tabGenerar && tabGenerar.classList.contains("active")) {
-      updateGeneratedFormat();
-    }
   }
+  const quickInput = $("p-factibilidad-quick-paste");
+  quickInput.value = "";
+  quickInput.placeholder = "✅ Factibilidad cargada. Presiona F2 para ver.";
+  markFormatStale();
 }
 
 function handleQuickPasteKey(e) {
@@ -532,221 +730,302 @@ function handleQuickPasteKey(e) {
 }
 
 function updateFactibilidadBadge() {
-  const hiddenArea = document.getElementById("p-factibilidad-bloque");
-  const badge = document.getElementById("factibilidad-status-badge");
-  if (!badge) return;
-  
-  if (hiddenArea && hiddenArea.value.trim().length > 0) {
-    badge.className = "fact-badge loaded";
-    badge.innerHTML = `<span class="badge-icon">✅</span><span class="badge-text">Factibilidad Cargada</span>`;
-  } else {
-    badge.className = "fact-badge empty";
-    badge.innerHTML = `<span class="badge-icon">⚪</span><span class="badge-text">Sin Factibilidad</span>`;
-  }
+  const loaded = $("p-factibilidad-bloque").value.trim().length > 0;
+  const badge = $("factibilidad-status-badge");
+  badge.className = `fact-badge ${loaded ? "loaded" : "empty"}`;
+  badge.replaceChildren(
+    el("span", { class: "badge-icon" }, loaded ? "✅" : "⚪"),
+    el("span", { class: "badge-text" }, loaded ? "Factibilidad Cargada" : "Sin Factibilidad"));
 }
 
 function openFactibilidadModal() {
-  const hiddenArea = document.getElementById("p-factibilidad-bloque");
-  const modalTextarea = document.getElementById("modal-factibilidad-textarea");
-  const modal = document.getElementById("factibilidad-modal");
-  if (!modal) return;
-  
-  modalTextarea.value = hiddenArea.value;
-  modal.style.display = "flex";
-  
-  const charCount = hiddenArea.value.trim().length;
-  document.getElementById("modal-factibilidad-info").textContent = `${charCount} caracteres cargados`;
-  modalTextarea.focus();
-}
-
-function closeFactibilidadModal() {
-  const modal = document.getElementById("factibilidad-modal");
-  if (modal) {
-    modal.style.display = "none";
-  }
+  const text = $("p-factibilidad-bloque").value;
+  $("modal-factibilidad-textarea").value = text;
+  $("modal-factibilidad-info").textContent = `${text.trim().length} caracteres cargados`;
+  openModal("factibilidad-modal");
+  $("modal-factibilidad-textarea").focus();
 }
 
 function saveFactibilidadModal() {
-  const hiddenArea = document.getElementById("p-factibilidad-bloque");
-  const modalTextarea = document.getElementById("modal-factibilidad-textarea");
-  hiddenArea.value = modalTextarea.value;
+  $("p-factibilidad-bloque").value = $("modal-factibilidad-textarea").value;
   updateFactibilidadBadge();
-  closeFactibilidadModal();
-  
-  const tabGenerar = document.getElementById("tab-generar");
-  if (tabGenerar && tabGenerar.classList.contains("active")) {
-    updateGeneratedFormat();
-  }
+  closeModal("factibilidad-modal");
+  markFormatStale();
 }
 
-// Google Maps button
 function openMaps() {
-  const coords = document.getElementById("u-coordenadas").value.trim();
-  if (coords) {
-    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(coords)}`, "_blank", "noopener,noreferrer");
-  }
+  const coords = $("u-coordenadas").value.trim();
+  if (coords) window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(coords)}`, "_blank", "noopener,noreferrer");
 }
 
-// Initialize Date Field to Today's Date
 function initDateField() {
-  const dateInput = document.getElementById("p-fecha");
-  if (dateInput) {
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-    const dd = String(today.getDate()).padStart(2, '0');
-    dateInput.value = `${yyyy}-${mm}-${dd}`;
-    
-    dateInput.addEventListener("change", () => {
-      const tabGenerar = document.getElementById("tab-generar");
-      if (tabGenerar && tabGenerar.classList.contains("active")) {
-        updateGeneratedFormat();
-      }
+  const today = new Date();
+  $("p-fecha").value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+}
+
+// ===========================================================================
+// Validación y generación del formato
+// ===========================================================================
+function getMissingRequiredFields() {
+  return Array.from(document.querySelectorAll(".tab-content input[required], .tab-content select[required], .tab-content textarea[required]"))
+    .filter(control => !control.disabled && !control.checkValidity());
+}
+
+function updateGenerationAvailability() {
+  const missing = getMissingRequiredFields();
+  const canGenerate = missing.length === 0;
+  const generateTab = document.querySelector('[data-tab="tab-generar"]');
+  const status = $("generation-requirements-status");
+  generateTab.disabled = !canGenerate;
+  generateTab.setAttribute("aria-disabled", String(!canGenerate));
+  $("btn-update-format").disabled = !canGenerate;
+  $("btn-register-alta").disabled = !canGenerate;
+  if (canGenerate) {
+    status.textContent = "Todos los campos requeridos están completos.";
+    status.className = "generation-status ready";
+  } else {
+    const labels = missing.map(control => {
+      const label = document.querySelector(`label[for="${control.id}"]`);
+      return label ? label.textContent.trim().replace(/:$/, "") : control.id;
     });
+    status.textContent = `Completa ${missing.length} campo(s) requerido(s): ${labels.join(", ")}`;
+    status.className = "generation-status pending";
   }
 }
 
-// Collect all form data for generating format
-function collectFormData() {
-  const itemsText = document.getElementById("s-items").value.trim();
-  const itemsList = itemsText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
-  
-  // Format Date to DD-MM-YYYY for Claro template
-  let fechaVal = document.getElementById("p-fecha") ? document.getElementById("p-fecha").value : "";
-  if (fechaVal && fechaVal.includes("-")) {
-    const p = fechaVal.split("-");
-    if (p.length === 3 && p[0].length === 4) {
-      fechaVal = `${p[2]}-${p[1]}-${p[0]}`;
-    }
-  }
-  
-  const gestorInfo = document.getElementById("eq-gestor-info").value;
-  const gestorMatch = gestorInfo.match(/VLAN\s+(\d+).*?([0-9.]+\/\d+).*?GW:\s*([0-9.]+).*?RAISECOM:\s*([0-9.]+)/i);
-  if (gestorInfo.trim() && !gestorMatch) {
-    throw new Error("El formato de VRF Gestor no es válido. Usa: VLAN 836 | 10.40.3.0/24 | GW: 10.40.3.1 | RAISECOM: 10.40.3.120");
-  }
+function markFormatStale() {
+  if (!state.registeredAlta) return;
+  state.registeredAlta = null;
+  $("btn-copy-format").disabled = true;
+  $("btn-download-format").disabled = true;
+  const status = $("alta-status");
+  status.hidden = false;
+  status.className = "alta-status stale";
+  status.textContent = "Hay cambios sin registrar. Pulse “Registrar alta” para guardar la nueva versión antes de copiarla.";
+}
 
+function parseGestor() {
+  const gestorInfo = $("eq-gestor-info").value;
+  if (!gestorInfo.trim()) return {};
+  const m = gestorInfo.match(/VLAN\s+(\d+).*?([0-9.]+\/\d+).*?GW:\s*([0-9.]+).*?RAISECOM:\s*([0-9.]+)/i);
+  if (!m) throw new Error("El formato de VRF Gestor no es válido. Use: VLAN 836 | 10.40.3.0/24 | GW: 10.40.3.1 | RAISECOM: 10.40.3.120");
+  return { vlan_gestor: m[1], red_gestor: m[2], gw_gestor: m[3], ip_gestor_raisecom: m[4] };
+}
+
+function collectFormData() {
+  const lines = id => $(id).value.split("\n").map(l => l.trim()).filter(Boolean);
+  let fecha = $("p-fecha").value;
+  const p = fecha.split("-");
+  if (p.length === 3 && p[0].length === 4) fecha = `${p[2]}-${p[1]}-${p[0]}`;
+  const [lan, ...lanObs] = $("eq-ip-lan").value.split("|");
   return {
-    titulo: document.getElementById("p-titulo") ? document.getElementById("p-titulo").value : "INTERNET CORPORATIVO",
-    id_servicio: document.getElementById("p-id-servicio").value,
-    cliente: document.getElementById("p-cliente").value,
-    disenador: document.getElementById("p-disenador").value,
-    tel_disenador: document.getElementById("p-tel-disenador") ? document.getElementById("p-tel-disenador").value : "",
-    fecha: fechaVal,
-    factibilidad_bloque: document.getElementById("p-factibilidad-bloque") ? document.getElementById("p-factibilidad-bloque").value : "",
-    
-    contacto_tec: document.getElementById("p-contacto-tec") ? document.getElementById("p-contacto-tec").value : "",
-    ejecutivo: document.getElementById("p-ejecutivo") ? document.getElementById("p-ejecutivo").value : "",
-    consultor: document.getElementById("p-consultor") ? document.getElementById("p-consultor").value : "",
-    
-    direccion: document.getElementById("u-direccion").value,
-    coordenadas: document.getElementById("u-coordenadas").value,
-    
-    medio: document.getElementById("s-medio").value,
-    velocidad: document.getElementById("s-velocidad").value,
-    ips_count: document.getElementById("s-ips").value,
-    equipo_cpe: document.getElementById("s-equipo").value,
-    factibilidad: document.getElementById("s-factibilidad").value,
-    observaciones: document.getElementById("s-observaciones").value,
-    items_aceptados: itemsList,
-    
-    vrf_name: document.getElementById("eq-vrf-name").value,
-    isla: document.getElementById("eq-isla").value,
-    red_wan: document.getElementById("eq-red-wan").value,
-    rd: document.getElementById("eq-rd").value,
-    vlan_num: document.getElementById("eq-vlan-num").value,
-    gw_wan: document.getElementById("eq-gw-wan").value,
-    desc_vlan: document.getElementById("eq-desc-vlan").value,
-    lan: document.getElementById("eq-ip-lan").value,
-    ip_wan: document.getElementById("eq-ip-wan").value,
-    loopback: document.getElementById("eq-loopback").value,
-    psk: document.getElementById("eq-psk").value,
-    vlan_gestor: gestorMatch ? gestorMatch[1] : "",
-    red_gestor: gestorMatch ? gestorMatch[2] : "",
-    gw_gestor: gestorMatch ? gestorMatch[3] : "",
-    ip_gestor_raisecom: gestorMatch ? gestorMatch[4] : "",
-    
+    titulo: $("p-titulo").value,
+    id_servicio: $("p-id-servicio").value.trim(),
+    cliente: $("p-cliente").value.trim(),
+    disenador: $("p-disenador").value,
+    tel_disenador: $("p-tel-disenador").value,
+    fecha,
+    factibilidad_bloque: $("p-factibilidad-bloque").value,
+    direccion: $("u-direccion").value,
+    coordenadas: $("u-coordenadas").value,
+    medio: $("s-medio").value,
+    velocidad: $("s-velocidad").value,
+    ips_count: $("s-ips").value,
+    equipo_cpe: $("s-equipo").value,
+    factibilidad: $("s-factibilidad").value,
+    observaciones: $("s-observaciones").value,
+    items_aceptados: lines("s-items"),
+    vrf_name: $("eq-vrf-name").value.trim(),
+    vrf_desc: $("eq-vrf-desc").value.trim(),
+    rd: $("eq-rd").value.trim(),
+    vpn_targets: lines("eq-vpn-targets"),
+    isla: $("eq-isla").value,
+    red_wan: $("eq-red-wan").value,
+    vlan_num: $("eq-vlan-num").value,
+    gw_wan: $("eq-gw-wan").value,
+    desc_vlan: $("eq-desc-vlan").value,
+    lan: (lan || "").trim(),
+    lan_obs: lanObs.join("|").trim(),
+    ip_wan: $("eq-ip-wan").value,
+    ips_adicionales: $("eq-ips-adicionales").value.split(",").map(s => s.trim()).filter(Boolean),
+    loopback: $("eq-loopback").value,
+    psk: $("eq-psk").value,
+    ...parseGestor(),
     equipos_claro: getEquipmentRowsData(),
-    equipo_raisecom: document.getElementById("m-raisecom").value
+    equipo_raisecom: $("m-raisecom").value,
+    enlace_medio: $("m-enlace").value,
+    obs_medio: $("m-obs-medio").value,
   };
 }
 
-// Update generated format box
+function focusFirstMissing() {
+  const missing = getMissingRequiredFields();
+  if (!missing.length) return false;
+  updateGenerationAvailability();
+  const tab = missing[0].closest(".tab-content");
+  if (tab) activateTab(tab.id);
+  missing[0].reportValidity();
+  missing[0].focus();
+  return true;
+}
+
 async function updateGeneratedFormat() {
-  const missingFields = getMissingRequiredFields();
-  if (missingFields.length > 0) {
-    updateGenerationAvailability();
-    missingFields[0].reportValidity();
-    missingFields[0].focus();
-    return;
-  }
-
-  const requestId = ++formatRequestId;
-  const output = document.getElementById("output-format-textarea");
-  const copyButton = document.getElementById("btn-copy-format");
-  const downloadButton = document.getElementById("btn-download-format");
-  output.value = "Generando vista previa...";
-  output.dataset.stale = "true";
-  copyButton.disabled = true;
-  downloadButton.disabled = true;
+  if (focusFirstMissing()) return;
+  const requestId = ++state.formatRequestId;
+  const output = $("output-format-textarea");
   try {
-    const formData = collectFormData();
-    const res = await fetch("/api/generate-format", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data: formData })
-    });
-    if (!res.ok) throw new Error(await getApiError(res, "Error al generar formato"));
-    const data = await res.json();
-    if (requestId === formatRequestId) {
-      output.value = data.formatted_text;
-      output.dataset.stale = "false";
-      copyButton.disabled = false;
-      downloadButton.disabled = false;
-    }
+    const data = await api("/api/generate-format", { method: "POST", json: { data: collectFormData() } });
+    if (requestId !== state.formatRequestId) return;
+    output.value = data.formatted_text;
+    state.registeredAlta = null;
+    $("btn-copy-format").disabled = true;
+    $("btn-download-format").disabled = true;
+    const status = $("alta-status");
+    status.hidden = false;
+    status.className = "alta-status preview";
+    status.textContent = "Vista previa (aún no registrada). Pulse “Registrar alta” para guardarla en Firebase y habilitar copiar/descargar.";
   } catch (err) {
-    console.error(err);
-    if (requestId === formatRequestId) output.value = "";
-    alert(`Error: ${err.message}`);
+    showError(err, "No se pudo generar la vista previa");
   }
 }
 
-// Copy to clipboard
+function wanIsReserved(data) {
+  if (!data.ip_wan) return true;
+  if (state.reservedForService.get(data.ip_wan) === data.id_servicio) return true;
+  const block = state.blocks.find(b => b.assigned_ips.some(a => a.ip === data.ip_wan));
+  return Boolean(block && block.assigned_ips.find(a => a.ip === data.ip_wan).id === data.id_servicio);
+}
+
+async function registerAlta() {
+  if (!ensureOperator()) return;
+  if (focusFirstMissing()) return;
+  let data;
+  try {
+    data = collectFormData();
+  } catch (err) {
+    showError(err);
+    return;
+  }
+  if (!wanIsReserved(data)) {
+    const ok = await confirmDialog(
+      `La IP WAN ${data.ip_wan} no figura reservada para el servicio “${data.id_servicio}”.\n¿Desea registrar el alta de todas formas?`,
+      { title: "IP sin reservar", accept: "Registrar igual" });
+    if (!ok) return;
+  }
+  const button = $("btn-register-alta");
+  button.disabled = true;
+  try {
+    const result = await api("/api/altas", { method: "POST", json: { data } });
+    $("output-format-textarea").value = result.formatted_text;
+    state.registeredAlta = { alta_id: result.alta_id, text: result.formatted_text, service: data.id_servicio };
+    $("btn-copy-format").disabled = false;
+    $("btn-download-format").disabled = false;
+    const status = $("alta-status");
+    status.hidden = false;
+    status.className = "alta-status registered";
+    status.replaceChildren(
+      result.duplicate ? "Esta alta ya estaba registrada: " : "✅ Alta registrada: ",
+      el("strong", { class: "mono" }, result.alta_id),
+      " · operación ",
+      el("button", { type: "button", class: "link-btn mono", onclick: () => copyText(result.operation_id, "ID copiado") }, result.operation_id));
+    toast(result.duplicate ? "El alta ya existía; no se duplicó." : `Alta ${result.alta_id} registrada en Firebase.`, "success", result.operation_id);
+  } catch (err) {
+    showError(err, "No se pudo registrar el alta");
+  } finally {
+    updateGenerationAvailability();
+  }
+}
+
 function copyFormatToClipboard() {
-  const textarea = document.getElementById("output-format-textarea");
-  if (!textarea.value || textarea.dataset.stale === "true") {
-    alert("Actualiza la vista previa antes de copiar.");
+  if (!state.registeredAlta) {
+    toast("Registre el alta antes de copiarla.", "warning");
     return;
   }
-  textarea.select();
-  navigator.clipboard.writeText(textarea.value).then(() => {
-    const alertBox = document.getElementById("copy-alert");
-    alertBox.style.display = "block";
-    setTimeout(() => {
-      alertBox.style.display = "none";
-    }, 3500);
-  }).catch(err => {
-    alert("No se pudo copiar automáticamente. Por favor selecciónalo con Ctrl+A y copia con Ctrl+C.");
-  });
+  copyText(state.registeredAlta.text, "¡Formato copiado al portapapeles!");
 }
 
-// Download TXT
 function downloadFormatTxt() {
-  const output = document.getElementById("output-format-textarea");
-  const text = output.value;
-  if (!text || output.dataset.stale === "true") {
-    alert("Actualiza la vista previa antes de descargar.");
+  if (!state.registeredAlta) {
+    toast("Registre el alta antes de descargarla.", "warning");
     return;
   }
-  const idServicio = document.getElementById("p-id-servicio").value.trim() || "ALTA_SERVICIO";
-  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  const safeId = idServicio.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
-  a.download = `Alta_${safeId}.txt`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  const safeId = state.registeredAlta.service.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "ALTA";
+  downloadBlob(new Blob([state.registeredAlta.text], { type: "text/plain;charset=utf-8" }),
+    `Alta_${safeId}_${state.registeredAlta.alta_id}.txt`);
+}
+
+// ===========================================================================
+// Consultas
+// ===========================================================================
+async function searchService(event) {
+  event.preventDefault();
+  const serviceId = $("search-service-id").value.trim();
+  const box = $("search-results");
+  if (!serviceId) return;
+  box.replaceChildren(el("p", {}, "Buscando..."));
+  try {
+    const r = await api(`/api/services/${encodeURIComponent(serviceId)}`);
+    box.replaceChildren(
+      el("h4", {}, `IPs asignadas (${r.ips.length})`),
+      r.ips.length ? el("ul", {}, ...r.ips.map(ip => el("li", {},
+        el("span", { class: "mono" }, ip.ip), ` · ${ip.purpose || ""} · subred ${ip.segment_id.replace("_", "/")} · por ${ip.assigned_by || "—"} (${formatDate(ip.assigned_at)})`))) : el("p", { class: "hint" }, "Sin IPs asignadas."),
+      el("h4", {}, `Altas registradas (${r.altas.length})`),
+      r.altas.length ? el("ul", {}, ...r.altas.map(a => el("li", {},
+        el("button", { type: "button", class: "link-btn mono", onclick: () => showAlta(a.alta_id) }, a.alta_id),
+        ` · ${formatDate(a.created_at)} · ${a.operator || ""}`))) : el("p", { class: "hint" }, "Sin altas registradas."),
+    );
+  } catch (err) {
+    box.replaceChildren(el("p", { class: "result-error" }, err.message));
+  }
+}
+
+async function lookupOperation(event) {
+  event.preventDefault();
+  const opId = $("search-operation-id").value.trim().toUpperCase();
+  const box = $("operation-result");
+  if (!opId) return;
+  try {
+    const r = await api(`/api/operations/${encodeURIComponent(opId)}`);
+    const rows = [
+      ["Acción", r.action], ["Resultado", `${r.outcome} (HTTP ${r.status_code})`], ["Operador", r.operator || "—"],
+      ["Fecha", formatDate(r.created_at)], ["Duración", `${r.duration_ms} ms`], ["Servicio", r.service_id || "—"],
+      ["Error", r.error || "—"], ["Ruta", `${r.method} ${r.path}`],
+    ];
+    box.replaceChildren(
+      el("table", { class: "kv-table" }, ...rows.map(([k, v]) => el("tr", {}, el("th", {}, k), el("td", {}, String(v))))),
+      el("details", {}, el("summary", {}, "Detalles técnicos"), el("pre", { class: "mono" }, JSON.stringify(r.details || {}, null, 2))),
+    );
+  } catch (err) {
+    box.replaceChildren(el("p", { class: "result-error" }, err.message));
+  }
+}
+
+async function loadAltasHistory() {
+  try {
+    const r = await api("/api/altas?limit=30");
+    $("altas-tbody").replaceChildren(...(r.altas.length ? r.altas.map(a => el("tr", {},
+      el("td", { class: "mono" }, a.alta_id),
+      el("td", {}, formatDate(a.created_at)),
+      el("td", {}, a.service_id || ""),
+      el("td", {}, a.cliente || ""),
+      el("td", {}, a.tipo_servicio || ""),
+      el("td", { class: "mono" }, a.ip_wan || ""),
+      el("td", {}, a.operator || ""),
+      el("td", {}, el("button", { type: "button", class: "btn btn-sm btn-outline", onclick: () => showAlta(a.alta_id) }, "Ver")),
+    )) : [el("tr", {}, el("td", { colspan: "8", class: "hint center" }, "Aún no hay altas registradas."))]));
+  } catch (err) {
+    showError(err, "No se pudo cargar el historial");
+  }
+}
+
+async function showAlta(altaId) {
+  try {
+    const a = await api(`/api/altas/${encodeURIComponent(altaId)}`);
+    $("alta-modal-title").textContent = `Alta ${a.alta_id}`;
+    $("alta-modal-meta").textContent = `${a.service_id} · ${a.cliente} · ${formatDate(a.created_at)} · ${a.operator} · operación ${a.operation_id}`;
+    $("alta-modal-text").value = a.formatted_text;
+    openModal("alta-modal");
+  } catch (err) {
+    showError(err, "No se pudo abrir el alta");
+  }
 }
