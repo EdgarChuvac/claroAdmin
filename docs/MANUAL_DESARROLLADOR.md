@@ -71,7 +71,7 @@ backend/
   catalog.py          Plantillas por tipo de servicio y catálogo de centrales
   format_generator.py Texto del alta
 config/
-  service_templates.json  Plantillas INTERNET / DATOS / ACCESO EMPRESARIAL + valores de red
+  service_templates.json  Plantillas INTERNET / DATOS, medios de transmisión, pool de loopbacks y valores de red
   centrales.json          Catálogo de centrales (demo) — se sincroniza a Firestore
 frontend/             index.html, app.js, style.css (sin build, JS nativo)
 scripts/              import_excel.py, seed_centrales.py (CLI)
@@ -179,7 +179,7 @@ Resumen de `ImportResult` + `filename`, `operator`, `operation_id`, `created_at`
 
 ### `altas/{ALTA-AAAAMMDD-XXXXXXXX}`
 
-`alta_id`, `service_id`, `cliente`, `tipo_servicio`, `ip_wan`, `red_wan`, `isla`, `vlan`, `operator`, `operation_id`, `formatted_text`, `form_data` (payload del formulario **sin `psk`**), `content_hash` (SHA-256 del texto), `created_at`.
+`alta_id`, `service_id`, `cliente`, `tipo_servicio`, `ip_wan`, `red_wan`, `isla`, `vlan`, `loopback`, `operator`, `operation_id`, `formatted_text`, `form_data` (payload del formulario **sin `psk`**), `content_hash` (SHA-256 del texto), `created_at`.
 
 ### `alta_hashes/{sha256}`
 
@@ -191,7 +191,19 @@ Resumen de `ImportResult` + `filename`, `operator`, `operation_id`, `created_at`
 
 ### `centrales/{id}`
 
-`id`, `nombre`, `isla`, `demo`, `equipos[]` (`no, rol, marca, modelo, hostname, ip_admon, int_in, int_out`), `updated_at`.
+`id`, `nombre`, `isla`, `demo`, `equipos[]` (`no, rol, marca, modelo, hostname, ip_admon`; `int_in`/`int_out` se aceptan pero ya no se imprimen en la ruta), `updated_at`.
+
+### `vlans/{ISLA}_{vlan}`
+
+`isla`, `vlan`, `rd`, `vrf_name`, `vrf_desc`, `vlan_desc`, `updated_by`, `updated_operation_id`, `updated_at`. Se escribe con `PUT /api/vlans` o al registrar un alta que traiga esos datos (un campo vacío no borra lo guardado).
+
+### `loopbacks/{ip}`
+
+`ip`, `service_id`, `assigned_by`, `assigned_operation_id`, `assigned_at`. `POST /api/altas` con `loopback_auto: true` asigna en una transacción la primera IP libre del pool (o reutiliza la del servicio). `GET /api/loopbacks/next` y la vista previa solo la consultan.
+
+### Isla en `inventory_sheets` e `ip_segments`
+
+Campo `isla` (mayúsculas). Se fija al importar (`isla` en el formulario; vacío conserva la anterior) o con `PUT /api/sheets/{red}/isla`. `GET /api/islas` y `GET /api/segments?isla=` alimentan los selectores de Equipamiento (`isla=` vacío = segmentos sin isla).
 
 ### Índices
 
@@ -428,7 +440,8 @@ def hacer_algo(req: AlgoRequest, state: StateDep, operator: OperatorDep) -> dict
 ## 13. Limitaciones conocidas y siguientes pasos
 
 * **Autenticación:** el operador es declarativo. Siguiente paso natural: Firebase Authentication o IAP; el middleware ya centraliza el operador, bastaría con tomarlo de un token verificado.
-* **Plantillas DATOS / ACCESO EMPRESARIAL:** pendientes de los valores reales de Ingeniería (`pendiente_validar`).
+* **Plantilla DATOS:** pendiente de los valores reales de Ingeniería (`pendiente_validar`); los datos reales se guardan por VLAN en `vlans`.
+* **Loopbacks:** no se liberan automáticamente al dar de baja un servicio; hoy se libera borrando el documento `loopbacks/{ip}`.
 * **Catálogo de centrales:** `config/centrales.json` contiene datos de demostración.
 * **Importación no atómica** entre lotes de 450 escrituras (idempotente; repetir si falla).
 * **Sin pruebas automatizadas del frontend** en CI (se validó con Playwright de forma manual; ver capturas en `docs/img`).

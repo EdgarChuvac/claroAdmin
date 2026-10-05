@@ -26,7 +26,7 @@ Versión de la aplicación: **2.0**.
 
 * Muestra el **inventario de IPs** guardado en Firebase, organizado por segmento /24 y subred (VLAN).
 * Permite **reservar** una o varias IPs libres para un ID de servicio, y **liberarlas** cuando el servicio se da de baja.
-* Arma el **formato de alta** (Internet Corporativo, Datos o Acceso Empresarial) con la factibilidad, la ruta de equipos y los recursos asignados.
+* Arma el **formato de alta** (INTERNET o DATOS corporativo) con la factibilidad, la ruta de equipos y los recursos asignados.
 * **Registra** cada alta en Firebase para consultarla después.
 * Deja **constancia de quién hizo qué y cuándo**: cada acción tiene un **ID de operación** que puede compartir con soporte.
 
@@ -56,7 +56,7 @@ La primera vez que abre la aplicación en un navegador, se le pide su **nombre y
 | **Importar Excel a Firebase** | Carga o actualiza el inventario a partir de un Excel ([sección 6](#6-importar-el-inventario-desde-excel)). |
 | **Exportar inventario** | Descarga el inventario actual en Excel ([sección 7](#7-exportar-el-inventario)). |
 | **👤 Nombre** | Operador actual; clic para cambiarlo. |
-| **Pestañas** | Principal → Ubicación → Servicio → Equipamiento → Medio → Generar Formato. **Consultas** está a la derecha. |
+| **Pestañas** | Principal → Servicio → Equipamiento → Medio → Generar Formato. **Consultas** está a la derecha. Las pestañas de captura se habilitan cuando la factibilidad está cargada o se marcó **Sin factibilidad**. |
 | **Línea de estado** | Indica qué campos obligatorios faltan. La pestaña *Generar Formato* se habilita cuando están completos. |
 | **Pie de página** | Versión y **Última operación** (clic para copiar el ID). |
 
@@ -66,58 +66,55 @@ La primera vez que abre la aplicación en un navegador, se le pide su **nombre y
 
 ### 4.1 Pestaña Principal
 
-1. **Tipo de servicio:** INTERNET, DATOS o ACCESO EMPRESARIAL. Al cambiarlo se cargan la VRF, el RD, los *vpn-targets* y los servicios aceptados de la plantilla de ese tipo.
-   * Si aparece el aviso amarillo *“plantilla pendiente de validar”*, revise y complete la VRF, el RD y los vpn-targets en **Equipamiento** antes de registrar.
-2. **ID del Servicio** y **Nombre del Cliente**: obligatorios.
-3. **Diseñado por**, teléfono y fecha.
-4. **Factibilidad:** pegue el texto completo con **Ctrl+V** en el recuadro. Si el texto trae `TITULO: ***...***`, el tipo de servicio se ajusta solo. Presione **F2** para ver o editar el texto completo.
+1. **ID del Servicio** y **Nombre del Cliente**: obligatorios.
+2. **Diseñado por**, teléfono y fecha.
+3. **Factibilidad:** pegue el texto completo con **Ctrl+V** en el recuadro. Si el texto trae `TITULO: ***...***`, el tipo de servicio se ajusta solo. Presione **F2** (desde cualquier campo) para ver o editar el texto ya cargado.
+   * Si el servicio no tiene factibilidad, pulse **🚫 Sin factibilidad**. El alta mostrará `SIN FACTIBILIDAD`.
+   * Mientras no haga una de las dos cosas, **no podrá pasar a las demás pestañas**.
 
-### 4.2 Pestaña Ubicación
+> La antigua pestaña *Ubicación* se eliminó: la dirección viene dentro del texto de factibilidad.
 
-Dirección del sitio y coordenadas (*latitud, longitud*). El botón **Ver en Google Maps** abre la ubicación en otra pestaña.
+### 4.2 Pestaña Servicio
 
-### 4.3 Pestaña Servicio
+Medio de transmisión (**FIBRA ÓPTICA**, **RADIOENLACE** o **G-PON**), equipo CPE extremo cliente y observaciones opcionales. El medio aparece en la ruta (`FO`, `RADIO` o `G-PON`).
 
-![Pestaña Servicio](img/03_servicio.png)
-
-Medio de transmisión, velocidad, **cantidad de IPs**, equipo CPE, dictamen de factibilidad, observaciones y servicios aceptados (uno por línea).
-
-### 4.4 Pestaña Equipamiento: elegir y reservar IPs
+### 4.3 Pestaña Equipamiento: isla, VLAN e IPs
 
 ![Pestaña Equipamiento con el inventario de IPs](img/04_equipamiento.png)
 
-1. Elija el **Segmento /24** y la **Subred / VLAN**. La red WAN, el gateway y la VLAN se completan solos.
-2. En **IPs Disponibles** seleccione una o varias IPs (mantenga **Ctrl** o **Cmd** para elegir varias).
-   * La **primera** seleccionada será la **IP WAN**; las demás aparecen como **IPs adicionales**.
-   * **Siguiente libre** selecciona automáticamente tantas IPs como indica *Cantidad de IPs* en la pestaña Servicio.
-3. Pulse **Reservar seleccionadas** y confirme:
+> Las capturas de esta sección son de la versión anterior; el orden de los campos cambió como se describe abajo.
 
-   ![Confirmación de la reserva](img/05_confirmar_reserva.png)
-
-4. Verá un mensaje verde con el **ID de operación**. El contador de IPs libres se actualiza:
+1. **Isla / Central** (primera opción). Al elegirla se carga la ruta de equipos de su central y solo se ofrecen los segmentos de esa isla.
+   * Los segmentos importados antes de esta versión aparecen en *(Segmentos sin isla asignada)*. Selecciónelos y pulse **🏷 Isla** junto al segmento para asignarlos; también puede indicar la isla al importar el Excel.
+2. **Tipo de servicio** (segunda opción): **INTERNET** o **DATOS**. Solo INTERNET habilita el campo **IP Pública**.
+3. **Número de VLAN** (tercera opción). Limita los segmentos /24, las subredes y las IPs disponibles a esa VLAN, y completa **RD**, **Nombre de VRF**, **Descripción VRF** y **Descripción VLAN** con lo guardado para la VLAN.
+   * Si la VLAN aún no tiene datos, escríbalos y pulse **💾 Guardar datos de la VLAN** (también se guardan al registrar el alta). La próxima vez se completarán solos.
+4. Elija el **Segmento /24** y la **Subred**; en **IPs Disponibles** seleccione una o varias IPs (mantenga **Ctrl** o **Cmd**). La **primera** será la **IP WAN**. **Siguiente libre** selecciona la primera IP libre.
+5. Pulse **Reservar seleccionadas** y confirme. Verá un mensaje verde con el **ID de operación**.
 
    ![Reserva exitosa con su ID de operación](img/06_reserva_ok.png)
 
 > **Importante:** las IPs quedan reservadas en Firebase al confirmar, aunque todavía no registre el alta. Si se equivocó, libérelas ([sección 5](#5-liberar-una-ip)).
 
-Complete el resto de parámetros: VRF, RD, descripciones, IP LAN (`red | observación`), Loopback, **PSK** (botón 🎲 genera una segura; 👁️ la muestra) y *vpn-targets*.
+**IP LAN (Loopback):** marque **¿Se necesita loopback?** y el sistema asigna la siguiente /32 libre del rango `10.212.100.1` a `10.212.100.254`. Se reserva al **registrar** el alta; un mismo servicio conserva siempre su loopback. Con loopback, el alta termina con el bloque *FAVOR DE AGREGAR LOOPBACK AL MONITOREO EN NMIS E ISE* (reemplaza al antiguo campo PSK).
 
-**Equipos extremo Claro:** pulse el botón de la central (por ejemplo *Central El Carmen*) para cargar su ruta de equipos y la isla. Puede editar cada celda, **Agregar fila** o **Eliminar**. Las centrales marcadas *(demo)* son datos de ejemplo hasta que Ingeniería cargue el catálogo real.
+**Equipos extremo Claro:** se cargan al elegir la isla, o con el botón de la central. Puede editar cada celda, **Agregar fila** o **Eliminar**. En la ruta se encadenan en el orden de la columna **No.** (desde el 1) con el formato `Rol Marca Modelo Hostname (IP Admon.) -->`.
 
-### 4.5 Pestaña Medio
+### 4.4 Pestaña Medio
 
 ![Pestaña Medio](img/08_medio.png)
 
-* **Equipo demarcador** (Raisecom) y **tramo de enlace** hacia el cliente (por defecto `FO`). Ambos aparecen en la línea de **RUTA A CONFIGURAR**.
+* **Equipo demarcador** (Raisecom): aparece como `(CLIENTE) RAISECOM ...` en la línea de **RUTA A CONFIGURAR**. El tramo del medio sale de la pestaña Servicio.
 * **Observaciones de medio**: si escribe algo, se agrega debajo de la ruta.
 
-### 4.6 Pestaña Generar Formato: vista previa y registro
+### 4.5 Pestaña Generar Formato: vista previa y registro
 
 Al abrir la pestaña se muestra una **vista previa** (aún no registrada):
 
 ![Vista previa del formato](img/09_vista_previa.png)
 
 * **Vista previa** vuelve a generar el texto con los datos actuales, sin guardarlo.
+* El formato **imprime únicamente los datos que se llenaron**: si un campo está vacío, su línea no aparece.
 * **Registrar alta** guarda el formato en Firebase y le asigna un número **ALTA-AAAAMMDD-XXXXXXXX**. Si la IP WAN no está reservada para ese servicio, se le pedirá confirmación.
 
 ![Alta registrada con su número y el ID de operación](img/10_alta_registrada.png)

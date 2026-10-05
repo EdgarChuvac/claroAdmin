@@ -1,5 +1,5 @@
 {
-  "_descripcion": "Plantillas por tipo de servicio. Los valores rellenan los campos del formulario al elegir el tipo y sirven de respaldo si el campo se deja vacío. Edite este archivo y reinicie la aplicación para aplicar cambios.",
+  "_descripcion": "Plantillas por tipo de servicio (INTERNET y DATOS). Los valores rellenan el formulario al elegir el tipo y sirven de respaldo cuando la VLAN no tiene datos guardados. Edite este archivo y reinicie la aplicación para aplicar cambios.",
   "network_defaults": {
     "vrf_gestor": "GESTOR_RAISECOM",
     "vlan_gestor": "836",
@@ -8,17 +8,21 @@
     "ip_gestor_raisecom": "10.40.3.120",
     "equipo_raisecom": "RAISECOM RAX711-L",
     "equipo_cpe": "CISCO C921",
-    "enlace_medio": "FO",
-    "loopback_id": "5"
+    "loopback_id": "5",
+    "loopback_pool_start": "10.212.100.1",
+    "loopback_pool_end": "10.212.100.254"
   },
   "services": {
-    "INTERNET CORPORATIVO": {
+    "INTERNET": {
       "label": "INTERNET",
       "linea1": "INTERNET CORPORATIVO",
       "prefijo_linea2": "INTERNET",
       "banner": "INTERNET CORPORATIVO",
       "item_principal": "INTERNET CORPORATIVO LOCAL {velocidad}",
-      "items_adicionales": ["ARRENDAMIENTO EQUIPO", "MONITOREO ENLACE"],
+      "items_adicionales": [
+        "ARRENDAMIENTO EQUIPO",
+        "MONITOREO ENLACE"
+      ],
       "observaciones": "ALTA DE IC",
       "vrf_name": "INTERNET_GT_METRO",
       "vrf_desc": "INTERNET_PEs_METROPOLITANO_ISLA_APP",
@@ -42,15 +46,19 @@
         "6458:18930 import-extcommunity",
         "6458:15200 import-extcommunity"
       ],
-      "pendiente_validar": false
+      "pendiente_validar": false,
+      "ip_publica": true
     },
     "DATOS": {
       "label": "DATOS",
       "linea1": "DATOS",
       "prefijo_linea2": "DATOS",
-      "banner": "DATOS",
+      "banner": "DATOS CORPORATIVO",
       "item_principal": "DATOS LOCAL {velocidad}",
-      "items_adicionales": ["ARRENDAMIENTO EQUIPO", "MONITOREO ENLACE"],
+      "items_adicionales": [
+        "ARRENDAMIENTO EQUIPO",
+        "MONITOREO ENLACE"
+      ],
       "observaciones": "ALTA DE DATOS",
       "vrf_name": "",
       "vrf_desc": "",
@@ -60,25 +68,22 @@
       "apply_label_per_instance": true,
       "traffic_policy": "",
       "vpn_targets": [],
-      "pendiente_validar": true
+      "pendiente_validar": true,
+      "ip_publica": false
+    }
+  },
+  "medios": {
+    "FIBRA": {
+      "label": "FIBRA ÓPTICA",
+      "ruta": "FO"
     },
-    "ACCESO EMPRESARIAL": {
-      "label": "ACCESO EMPRESARIAL",
-      "linea1": "ACCESO EMPRESARIAL",
-      "prefijo_linea2": "ACCESO EMPRESARIAL",
-      "banner": "ACCESO EMPRESARIAL",
-      "item_principal": "ACCESO EMPRESARIAL LOCAL {velocidad}",
-      "items_adicionales": ["ARRENDAMIENTO EQUIPO", "MONITOREO ENLACE"],
-      "observaciones": "ALTA DE ACCESO EMPRESARIAL",
-      "vrf_name": "",
-      "vrf_desc": "",
-      "rd": "",
-      "import_policy": "",
-      "export_policy": "",
-      "apply_label_per_instance": true,
-      "traffic_policy": "",
-      "vpn_targets": [],
-      "pendiente_validar": true
+    "RADIO": {
+      "label": "RADIOENLACE",
+      "ruta": "RADIO"
+    },
+    "GPON": {
+      "label": "G-PON",
+      "ruta": "G-PON"
     }
   }
 }

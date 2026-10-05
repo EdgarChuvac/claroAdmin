@@ -64,6 +64,8 @@ class Settings(BaseSettings):
 
     # --- Catálogos ------------------------------------------------------
     config_dir: str = str(BASE_DIR / "config")
+    # PRE-SHARED KEY que se imprime en el bloque de monitoreo (NMIS e ISE) de cada alta.
+    monitoreo_psk: str = ""
 
     @field_validator("firestore_collection_prefix")
     @classmethod

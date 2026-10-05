@@ -18,12 +18,17 @@ Colecciones (todas con el prefijo ``FIRESTORE_COLLECTION_PREFIX``):
     Auditoría de operaciones (ver ``backend.tracing``).
 ``centrales/{id}``
     Catálogo de centrales y rutas de equipos.
+``vlans/{isla}_{vlan}``
+    Datos de red por VLAN (RD, VRF y descripciones) para autocompletar el alta.
+``loopbacks/{ip}``
+    Loopbacks /32 asignadas automáticamente (pool 10.212.100.1-254 por defecto).
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import secrets
 from collections import defaultdict
 from dataclasses import dataclass
@@ -94,6 +99,15 @@ def normalize_ips(ips: Iterable[str]) -> list[str]:
 
 def segment_id_for(block: IPBlock) -> str:
     return f"{block.ip_base}.{block.network_octet}_{block.cidr}"
+
+
+def normalize_isla(value: str | None) -> str:
+    return " ".join((value or "").split()).upper()[:60]
+
+
+def vlan_doc_id(isla: str, vlan: str) -> str:
+    slug = re.sub(r"[^A-Z0-9]+", "-", normalize_isla(isla)).strip("-") or "SIN-ISLA"
+    return f"{slug}_{vlan}"
 
 
 def new_readable_id(prefix: str) -> str:
@@ -232,6 +246,7 @@ class InventoryRepository:
         operator: str,
         operation_id: str,
         ignored_sheets: list[str],
+        isla: str = "",
     ) -> ImportResult:
         """Importa el inventario del Excel.
 
@@ -256,15 +271,19 @@ class InventoryRepository:
         totals = {"segments": 0, STATUS_FREE: 0, STATUS_USED: 0, STATUS_GATEWAY: 0}
         sheets = [s for s, b in blocks_by_sheet.items() if b]
 
+        isla = normalize_isla(isla)
         for sheet in sheets:
             blocks = blocks_by_sheet[sheet]
+            existing_sheet = self.col("inventory_sheets").document(sheet).get()
+            previous_isla = (existing_sheet.to_dict() or {}).get("isla", "") if existing_sheet.exists else ""
+            sheet_isla = isla or previous_isla
             new_segments: dict[str, dict[str, Any]] = {}
             new_ips: dict[str, dict[str, Any]] = {}
             for block in blocks:
                 seg_id = segment_id_for(block)
                 if seg_id in new_segments:
                     raise InventoryError(f"Subred duplicada en la hoja {sheet}: {block.network_ip}")
-                new_segments[seg_id] = self._segment_doc(block, seg_id, import_id, now)
+                new_segments[seg_id] = {**self._segment_doc(block, seg_id, import_id, now), "isla": sheet_isla}
                 for ip, doc in self._ip_docs_for_block(block, seg_id, import_id, now).items():
                     if ip in new_ips:
                         raise InventoryError(
@@ -352,7 +371,7 @@ class InventoryRepository:
                 deletable = [s for s in stale_segments if s not in still_used]
                 self._commit_in_batches([("delete", self.col("ip_segments").document(s), None) for s in deletable])
 
-            sheet_counts, segments_count = self._recompute_counters(sheet, import_id)
+            sheet_counts, segments_count = self._recompute_counters(sheet, import_id, sheet_isla)
             totals["segments"] += segments_count
             for key in sheet_counts:
                 totals[key] += sheet_counts[key]
@@ -415,7 +434,7 @@ class InventoryRepository:
             conflicts.extend(c)
         return written, conflicts
 
-    def _recompute_counters(self, sheet: str, import_id: str) -> tuple[dict[str, int], int]:
+    def _recompute_counters(self, sheet: str, import_id: str, isla: str = "") -> tuple[dict[str, int], int]:
         """Recalcula contadores de la hoja y sus subredes a partir del estado real."""
 
         def run(transaction):
@@ -443,6 +462,7 @@ class InventoryRepository:
                 "available_count": sheet_counts[STATUS_FREE],
                 "assigned_count": sheet_counts[STATUS_USED],
                 "gateway_count": sheet_counts[STATUS_GATEWAY],
+                "isla": isla,
                 "last_import_id": import_id,
                 "updated_at": utcnow(),
             })
@@ -722,3 +742,112 @@ class InventoryRepository:
             ops.append(("delete", self.col("centrales").document(stale), None))
         self._commit_in_batches(ops)
         return len(centrales)
+
+    # ------------------------------------------------------------------
+    # Islas, segmentos y catálogo de VLANs
+    # ------------------------------------------------------------------
+    def set_sheet_isla(self, sheet: str, isla: str) -> dict[str, Any]:
+        """Asigna la isla/central a un segmento /24 y a todas sus subredes."""
+        isla = normalize_isla(isla)
+        sheet_ref = self.col("inventory_sheets").document(sheet)
+        if not sheet_ref.get().exists:
+            raise NotFoundError("La hoja solicitada no existe en el inventario.")
+        ops: list[tuple[str, Any, dict[str, Any] | None]] = [("merge", sheet_ref, {"isla": isla, "updated_at": utcnow()})]
+        for snap in self._where("ip_segments", "sheet", "==", sheet).stream():
+            ops.append(("merge", snap.reference, {"isla": isla}))
+        self._commit_in_batches(ops)
+        return {"sheet": sheet, "isla": isla, "segments": len(ops) - 1}
+
+    def list_segments(self, isla: str | None = None) -> list[dict[str, Any]]:
+        """Subredes (sin el detalle de IPs). ``isla=""`` devuelve las que no tienen isla."""
+        if isla:
+            snaps = self._where("ip_segments", "isla", "==", normalize_isla(isla)).stream()
+            segments = [snap.to_dict() for snap in snaps]
+        else:
+            segments = [snap.to_dict() for snap in self.col("ip_segments").stream()]
+            if isla == "":
+                segments = [s for s in segments if not s.get("isla")]
+        keys = ("segment_id", "sheet", "isla", "network_ip", "gateway_ip", "cidr", "vlan", "vlan_raw",
+                "available_count", "assigned_count")
+        return sorted(
+            ({k: s.get(k) for k in keys} for s in segments),
+            key=lambda s: (ip_sort_key(s.get("sheet") or ""), ip_sort_key((s.get("network_ip") or "").split("/")[0])),
+        )
+
+    def list_islas(self) -> list[str]:
+        islas = {s.get("isla") for s in self.list_sheets() if s.get("isla")}
+        islas |= {c.get("isla") for c in self.list_centrales() if c.get("isla")}
+        islas |= {v.get("isla") for v in (snap.to_dict() for snap in self.col("vlans").stream()) if v.get("isla")}
+        return sorted(normalize_isla(i) for i in islas)
+
+    def list_vlans(self, isla: str = "") -> list[dict[str, Any]]:
+        query = self._where("vlans", "isla", "==", normalize_isla(isla)) if isla else self.col("vlans")
+        vlans = [snap.to_dict() for snap in query.stream()]
+        return sorted(vlans, key=lambda v: (v.get("isla", ""), int(v["vlan"]) if str(v.get("vlan", "")).isdigit() else 0))
+
+    VLAN_FIELDS = ("rd", "vrf_name", "vrf_desc", "vlan_desc")
+
+    def upsert_vlan(self, isla: str, vlan: str, values: dict[str, str], operator: str,
+                    operation_id: str) -> dict[str, Any]:
+        """Guarda RD, VRF y descripciones de una VLAN. Los campos vacíos no borran lo guardado."""
+        isla = normalize_isla(isla)
+        vlan = str(vlan).strip()
+        if not vlan.isdigit() or not 1 <= int(vlan) <= 4094:
+            raise InventoryError("Número de VLAN inválido (1 a 4094).")
+        updates = {k: str(values.get(k) or "").strip() for k in self.VLAN_FIELDS}
+        updates = {k: v for k, v in updates.items() if v}
+        if not updates:
+            raise InventoryError("Indique al menos el RD, la VRF o una descripción de la VLAN.")
+        ref = self.col("vlans").document(vlan_doc_id(isla, vlan))
+        ref.set({**updates, "isla": isla, "vlan": vlan, "updated_by": operator,
+                 "updated_operation_id": operation_id, "updated_at": utcnow()}, merge=True)
+        return ref.get().to_dict()
+
+    # ------------------------------------------------------------------
+    # Loopbacks automáticas
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _loopback_pool(start: str, end: str) -> list[str]:
+        first, last = int(IPv4Address(start)), int(IPv4Address(end))
+        if last < first or last - first > 4096:
+            raise InventoryError("Rango de loopbacks mal configurado.")
+        return [str(IPv4Address(i)) for i in range(first, last + 1)]
+
+    def loopback_for_service(self, service_id: str) -> str | None:
+        if not service_id:
+            return None
+        for snap in self._where("loopbacks", "service_id", "==", service_id).stream():
+            return snap.to_dict()["ip"]
+        return None
+
+    def peek_loopback(self, service_id: str, start: str, end: str) -> str:
+        """Loopback que tendría el servicio (la suya o la siguiente libre), sin reservarla."""
+        existing = self.loopback_for_service(service_id)
+        if existing:
+            return existing
+        used = {snap.id for snap in self.col("loopbacks").stream()}
+        for ip in self._loopback_pool(start, end):
+            if ip not in used:
+                return ip
+        raise ConflictError("No quedan loopbacks libres en el rango configurado.")
+
+    def assign_loopback(self, service_id: str, operator: str, operation_id: str, start: str, end: str) -> str:
+        """Asigna (o reutiliza) la loopback /32 del servicio de forma atómica."""
+        pool = self._loopback_pool(start, end)
+
+        def run(transaction):
+            for snap in self._where("loopbacks", "service_id", "==", service_id).stream(transaction=transaction):
+                return snap.to_dict()["ip"]
+            used = {snap.id for snap in self.col("loopbacks").stream(transaction=transaction)}
+            for ip in pool:
+                if ip in used:
+                    continue
+                ref = self.col("loopbacks").document(ip)
+                if ref.get(transaction=transaction).exists:
+                    continue
+                transaction.set(ref, {"ip": ip, "service_id": service_id, "assigned_by": operator,
+                                      "assigned_operation_id": operation_id, "assigned_at": utcnow()})
+                return ip
+            raise ConflictError("No quedan loopbacks libres en el rango configurado.")
+
+        return self._run_transaction(run)

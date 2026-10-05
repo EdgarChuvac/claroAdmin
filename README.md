@@ -1,6 +1,6 @@
 # Claro CENAM Service Manager
 
-Aplicación web para administrar el inventario de direcciones IP de Claro CENAM en **Cloud Firestore (Firebase)**, reservar y liberar IPs por servicio y generar el formato técnico de alta (Internet Corporativo, Datos y Acceso Empresarial), con **trazabilidad completa**: cada operación tiene un ID único que aparece en pantalla, en los logs y en la bitácora de Firestore.
+Aplicación web para administrar el inventario de direcciones IP de Claro CENAM en **Cloud Firestore (Firebase)**, reservar y liberar IPs por servicio y generar el formato técnico de alta (INTERNET y DATOS corporativo), con **trazabilidad completa**: cada operación tiene un ID único que aparece en pantalla, en los logs y en la bitácora de Firestore.
 
 > Este README es la **guía técnica de despliegue**. Para el uso diario consulte el [Manual de usuario](docs/MANUAL_USUARIO.md) y para mantener el código el [Manual de desarrollador](docs/MANUAL_DESARROLLADOR.md).
 
@@ -51,6 +51,8 @@ flowchart LR
 | `alta_hashes` | Garantiza que un mismo texto de alta no se registre dos veces |
 | `operations` | Auditoría por ID de operación (con `expires_at` para TTL) |
 | `centrales` | Catálogo de centrales y rutas de equipos |
+| `vlans` | RD, nombre/descripción de VRF y descripción por VLAN e isla (autocompleta el alta) |
+| `loopbacks` | Loopbacks /32 asignadas automáticamente a cada servicio (pool `10.212.100.1`–`10.212.100.254`) |
 
 ---
 
@@ -139,6 +141,7 @@ cp .env.example .env      # Windows: copy .env.example .env
 | `LOG_FORMAT` | no | `json` | `json` (recomendado) o `text` |
 | `LOG_DIR` | no | `logs` | Carpeta de logs rotativos; vacío = solo consola |
 | `LOG_FILE_MAX_MB` / `LOG_FILE_BACKUPS` | no | `10` / `10` | Rotación de `logs/app.log` |
+| `MONITOREO_PSK` | sí, si se usan loopbacks | vacío | PRE-SHARED KEY que se imprime en el bloque *FAVOR DE AGREGAR LOOPBACK AL MONITOREO EN NMIS E ISE*. **No la guarde en el repositorio** |
 | `PERSIST_READ_OPERATIONS` | no | `false` | `true` guarda también las consultas (GET) en `operations` |
 | `OPERATIONS_RETENTION_DAYS` | no | `365` | Días de retención de la bitácora (`expires_at`) |
 
@@ -265,7 +268,7 @@ gcloud run deploy claro-admin \
 
    Mientras la colección `centrales` esté vacía, la app usa el archivo.
 
-3. **Plantillas por tipo de servicio:** `config/service_templates.json` define VRF, RD, políticas y *vpn-targets* por servicio, y los valores de red por defecto (gestor Raisecom, CPE, etc.). **Las plantillas de DATOS y ACCESO EMPRESARIAL vienen sin VRF/RD (`pendiente_validar: true`)**: Ingeniería debe completarlas. Reinicie la app tras editarlas.
+3. **Plantillas por tipo de servicio:** `config/service_templates.json` define VRF, RD, políticas y *vpn-targets* por servicio, y los valores de red por defecto (gestor Raisecom, CPE, etc.). **La plantilla de DATOS viene sin VRF/RD (`pendiente_validar: true`)**; esos datos se guardan por VLAN desde la pantalla de Equipamiento. El rango de loopbacks se define en `network_defaults.loopback_pool_start/end`. Reinicie la app tras editarlas.
 
 ---
 
@@ -342,7 +345,7 @@ Para revertir, vuelva a la etiqueta anterior y reinicie. Los cambios de esquema 
 
 * **No hay autenticación:** el nombre de operador es declarativo (sirve para trazabilidad, no para control de acceso). Despliegue solo en red interna, detrás de VPN, IAP o un proxy con lista de IPs permitidas.
 * Las reglas de Firestore bloquean todo acceso que no sea el backend.
-* La colección `altas` guarda el texto del alta, que **incluye la Pre-Shared Key** (se necesita para entregar el formato); el campo `form_data` se guarda sin la PSK. Limite quién tiene acceso a la consola de Firebase y a la aplicación.
+* La colección `altas` guarda el texto del alta, que **incluye la Pre-Shared Key de monitoreo** (`MONITOREO_PSK`) cuando el alta lleva loopback; el campo `form_data` nunca la guarda. Limite quién tiene acceso a la consola de Firebase y a la aplicación.
 * Los errores 404/405 no se guardan en `operations` (evita escrituras masivas por escaneos); sí quedan en el log.
 * En Docker la imagen confía en `X-Forwarded-For` de cualquier origen (`--forwarded-allow-ips='*'`), adecuado detrás de Cloud Run o de un proxy propio. Si expone el contenedor directamente, cambie ese valor por la IP de su proxy para que la IP registrada no pueda falsificarse.
 * El Excel importado se valida por tamaño comprimido (`MAX_UPLOAD_MB`) y descomprimido (máx. 200 MB) para evitar archivos maliciosos.

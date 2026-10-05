@@ -186,7 +186,8 @@ def test_export_roundtrip(client):
 
 
 def test_alta_is_recorded_and_idempotent(client):
-    payload = {"data": {"id_servicio": "S-1", "cliente": "CLIENTE DEMO", "ip_wan": "10.20.38.6"}}
+    payload = {"data": {"id_servicio": "S-1", "cliente": "CLIENTE DEMO", "ip_wan": "10.20.38.6",
+                        "sin_factibilidad": True, "loopback_auto": True}}
     first = client.post("/api/altas", json=payload, headers=OPERATOR)
     assert first.status_code == 200, first.text
     alta_id = first.json()["alta_id"]
@@ -204,8 +205,20 @@ def test_alta_is_recorded_and_idempotent(client):
 
 
 def test_alta_requires_service_and_client(client):
-    res = client.post("/api/altas", json={"data": {"id_servicio": "", "cliente": "X"}}, headers=OPERATOR)
+    res = client.post("/api/altas", json={"data": {"id_servicio": "", "cliente": "X", "sin_factibilidad": True}},
+                      headers=OPERATOR)
     assert res.status_code == 422
+
+
+def test_alta_requires_factibilidad_or_sin_factibilidad(client):
+    base = {"id_servicio": "S-F", "cliente": "X"}
+    res = client.post("/api/altas", json={"data": base}, headers=OPERATOR)
+    assert res.status_code == 422
+    assert "Sin factibilidad" in res.json()["detail"]
+    ok = client.post("/api/altas", json={"data": {**base, "factibilidad_bloque": "TITULO: ***DATOS***"}},
+                     headers=OPERATOR)
+    assert ok.status_code == 200, ok.text
+    assert "Factibilidad:\nTITULO: ***DATOS***" in ok.json()["formatted_text"]
 
 
 def test_preview_does_not_record(client):
@@ -261,7 +274,11 @@ def test_logs_include_operation_id(client, caplog):
 
 def test_config_exposes_templates_and_centrales(client):
     cfg = client.get("/api/config").json()
-    assert set(cfg["services"]) == {"INTERNET CORPORATIVO", "DATOS", "ACCESO EMPRESARIAL"}
+    assert set(cfg["services"]) == {"INTERNET", "DATOS"}
+    assert cfg["services"]["INTERNET"]["ip_publica"] is True
+    assert cfg["services"]["DATOS"]["ip_publica"] is False
+    assert {m["label"] for m in cfg["medios"].values()} == {"FIBRA ÓPTICA", "RADIOENLACE", "G-PON"}
+    assert "psk_monitoreo" not in cfg["network_defaults"]
     assert cfg["centrales_source"] == "archivo"
     assert cfg["centrales"][0]["equipos"]
     sync = client.post("/api/centrales/sync", headers=OPERATOR)
@@ -271,7 +288,8 @@ def test_config_exposes_templates_and_centrales(client):
 
 def test_service_search(client):
     client.post("/api/reservations", json={"ips": ["10.20.38.6"], "service_id": "S-1"}, headers=OPERATOR)
-    client.post("/api/altas", json={"data": {"id_servicio": "S-1", "cliente": "X"}}, headers=OPERATOR)
+    client.post("/api/altas", json={"data": {"id_servicio": "S-1", "cliente": "X", "sin_factibilidad": True}},
+                headers=OPERATOR)
     found = client.get("/api/services/S-1").json()
     assert [i["ip"] for i in found["ips"]] == ["10.20.38.6"]
     assert len(found["altas"]) == 1

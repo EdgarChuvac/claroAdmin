@@ -35,7 +35,6 @@
 
     <nav class="tabs-nav">
       <button class="tab-btn active" data-tab="tab-principal">Principal</button>
-      <button class="tab-btn" data-tab="tab-ubicacion">Ubicación</button>
       <button class="tab-btn" data-tab="tab-servicio">Servicio</button>
       <button class="tab-btn" data-tab="tab-equipamiento">Equipamiento</button>
       <button class="tab-btn" data-tab="tab-medio">Medio</button>
@@ -51,11 +50,6 @@
           <h3>Información General y Factibilidad del Servicio</h3>
         </div>
         <div class="card-body grid-2">
-          <div class="form-group col-span-2">
-            <label>Tipo de Servicio (Título):</label>
-            <select id="p-titulo" class="service-select" onchange="onServiceTypeChange(this.value)"></select>
-            <small id="service-template-warning" class="field-warning" hidden>⚠ La plantilla de este servicio está pendiente de validar por Ingeniería: revise VRF, RD y vpn-targets.</small>
-          </div>
           <div class="form-group col-span-2">
             <label>ID del Servicio (identificador único):</label>
             <input type="text" id="p-id-servicio" value="" placeholder="Ingrese el identificador del servicio" class="input-highlight" maxlength="100" required>
@@ -82,34 +76,16 @@
               <span class="hint">Tip: Presiona <kbd class="kbd-hint">F2</kbd> para ver o editar el texto completo</span>
             </label>
             <div class="factibilidad-compact-box">
-              <input type="text" id="p-factibilidad-quick-paste" placeholder="Pega aquí la Factibilidad con Ctrl+V (o presiona F2 para abrir el editor)..." onpaste="handleQuickPaste(event)" onkeydown="handleQuickPasteKey(event)">
-              <div id="factibilidad-status-badge" class="fact-badge empty">
+              <input type="text" id="p-factibilidad-quick-paste" placeholder="Pega aquí la Factibilidad con Ctrl+V (o presiona F2 para abrir el editor)..." onpaste="handleQuickPaste(event)">
+              <div id="factibilidad-status-badge" class="fact-badge empty" role="status">
                 <span class="badge-icon">○</span>
-                <span class="badge-text">Sin Factibilidad</span>
+                <span class="badge-text">Factibilidad pendiente</span>
               </div>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-sin-factibilidad" aria-pressed="false" onclick="toggleSinFactibilidad()" title="Continuar sin cargar la factibilidad">🚫 Sin factibilidad</button>
               <button type="button" class="btn btn-secondary btn-sm" onclick="openFactibilidadModal()" title="Presiona F2 para ver o editar">👁️ Ver / Editar (F2)</button>
             </div>
+            <small id="factibilidad-gate-hint" class="field-warning">Cargue la factibilidad o pulse «Sin factibilidad» para continuar a las demás pestañas.</small>
             <textarea id="p-factibilidad-bloque" hidden></textarea>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- TAB: UBICACIÓN -->
-    <section class="tab-content" id="tab-ubicacion">
-      <div class="card">
-        <div class="card-header"><h3>Ubicación y Coordenadas del Cliente</h3></div>
-        <div class="card-body">
-          <div class="form-group">
-            <label>Dirección Física de Instalación:</label>
-            <input type="text" id="u-direccion" value="" placeholder="Dirección completa del sitio">
-          </div>
-          <div class="form-group">
-            <label>Coordenadas GPS (Latitud, Longitud):</label>
-            <div class="input-with-button">
-              <input type="text" id="u-coordenadas" value="" placeholder="14.6000, -90.5000">
-              <button type="button" class="btn btn-secondary" onclick="openMaps()">Ver en Google Maps</button>
-            </div>
           </div>
         </div>
       </div>
@@ -125,32 +101,16 @@
             <select id="s-medio">
               <option value="FIBRA" selected>FIBRA ÓPTICA</option>
               <option value="RADIO">RADIOENLACE</option>
-              <option value="COBRE">COBRE / HFC</option>
+              <option value="GPON">G-PON</option>
             </select>
-          </div>
-          <div class="form-group">
-            <label>Velocidad Contratada:</label>
-            <input type="text" id="s-velocidad" value="300 MBPS">
-          </div>
-          <div class="form-group">
-            <label>Cantidad de IPs asignadas:</label>
-            <input type="number" id="s-ips" value="1" min="1" max="64">
           </div>
           <div class="form-group">
             <label>Equipo CPE Extremo Cliente:</label>
             <input type="text" id="s-equipo" value="">
           </div>
           <div class="form-group col-span-2">
-            <label>Dictamen de Factibilidad:</label>
-            <textarea id="s-factibilidad" rows="2" placeholder="Resultado de la validación técnica"></textarea>
-          </div>
-          <div class="form-group col-span-2">
-            <label>Observaciones de Ingeniería:</label>
+            <label>Observaciones de Ingeniería (opcional):</label>
             <input type="text" id="s-observaciones" value="">
-          </div>
-          <div class="form-group col-span-2">
-            <label>Servicios y Componentes Aceptados (uno por línea):</label>
-            <textarea id="s-items" rows="3"></textarea>
           </div>
         </div>
       </div>
@@ -159,7 +119,26 @@
     <!-- TAB: EQUIPAMIENTO -->
     <section class="tab-content" id="tab-equipamiento">
 
-      <div class="ipam-toolbar">
+      <div class="card">
+        <div class="card-header"><h3>Isla, tipo de servicio y VLAN</h3></div>
+        <div class="card-body grid-3">
+          <div class="form-group">
+            <label>1. Isla / Central:</label>
+            <select id="eq-isla" onchange="onIslaChange()" required></select>
+          </div>
+          <div class="form-group">
+            <label>2. Tipo de Servicio:</label>
+            <select id="p-titulo" class="service-select" onchange="onServiceTypeChange(this.value)"></select>
+            <small id="service-template-warning" class="field-warning" hidden>⚠ Plantilla pendiente de validar por Ingeniería: revise VRF y RD.</small>
+          </div>
+          <div class="form-group">
+            <label>3. Número de VLAN:</label>
+            <select id="eq-vlan-select" onchange="onVlanChange()"></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="ipam-toolbar mt-15">
         <div class="ipam-title">
           <span>🌐</span> <strong>INVENTARIO DE IPs (FIREBASE)</strong>
           <span class="ipam-legend">Seleccione una o varias IPs libres (Ctrl/Cmd + clic). La primera seleccionada será la IP WAN.</span>
@@ -167,7 +146,10 @@
         <div class="ipam-controls">
           <div class="ipam-field">
             <label>Segmento /24:</label>
-            <select id="ipam-sheet-select" onchange="onSheetSelected()"></select>
+            <div class="input-with-button">
+              <select id="ipam-sheet-select" onchange="onSheetSelected()"></select>
+              <button type="button" class="btn btn-sm btn-outline" onclick="openAssignIslaModal()" title="Asignar este segmento a una isla">🏷 Isla</button>
+            </div>
           </div>
           <div class="ipam-field">
             <label>Subred / VLAN:</label>
@@ -197,38 +179,12 @@
         <div class="card-header"><h3>Parámetros de Red y Enrutamiento (Equipamiento)</h3></div>
         <div class="card-body grid-3">
           <div class="form-group">
-            <label>Nombre de VRF:</label>
-            <input type="text" id="eq-vrf-name" value="">
-          </div>
-          <div class="form-group">
-            <label>Isla / Central:</label>
-            <input type="text" id="eq-isla" value="">
-          </div>
-          <div class="form-group">
             <label>RED WAN (con máscara CIDR):</label>
             <input type="text" id="eq-red-wan" value="" class="input-highlight" readonly>
-          </div>
-
-          <div class="form-group">
-            <label>RD (Route Distinguisher):</label>
-            <input type="text" id="eq-rd" value="">
-          </div>
-          <div class="form-group">
-            <label>Número de VLAN:</label>
-            <input type="text" id="eq-vlan-num" value="" class="input-highlight">
           </div>
           <div class="form-group">
             <label>Gateway WAN:</label>
             <input type="text" id="eq-gw-wan" value="" class="input-highlight" readonly>
-          </div>
-
-          <div class="form-group">
-            <label>Descripción VRF:</label>
-            <input type="text" id="eq-vrf-desc" value="">
-          </div>
-          <div class="form-group">
-            <label>Descripción VLAN:</label>
-            <input type="text" id="eq-desc-vlan" value="">
           </div>
           <div class="form-group">
             <label>IP WAN Asignada:</label>
@@ -236,12 +192,12 @@
           </div>
 
           <div class="form-group">
-            <label>IP LAN (red | observación):</label>
-            <input type="text" id="eq-ip-lan" value="" placeholder="203.0.113.0/28 | CLIENTE">
+            <label>RD (Route Distinguisher):</label>
+            <input type="text" id="eq-rd" value="" maxlength="60">
           </div>
           <div class="form-group">
-            <label>IP Loopback:</label>
-            <input type="text" id="eq-loopback" value="" placeholder="192.0.2.100/32">
+            <label>Nombre de VRF:</label>
+            <input type="text" id="eq-vrf-name" value="" maxlength="80">
           </div>
           <div class="form-group">
             <label>IPs adicionales reservadas:</label>
@@ -249,20 +205,29 @@
           </div>
 
           <div class="form-group">
-            <label>Pre-Shared Key (PSK):</label>
-            <div class="input-with-button">
-              <input type="password" id="eq-psk" value="" autocomplete="new-password">
-              <button type="button" class="btn btn-sm btn-secondary" onclick="togglePSK()" title="Mostrar u ocultar">👁️</button>
-              <button type="button" class="btn btn-sm btn-secondary" onclick="generateRandomPSK()">🎲 Generar</button>
-            </div>
+            <label>Descripción VRF:</label>
+            <input type="text" id="eq-vrf-desc" value="" maxlength="120">
+          </div>
+          <div class="form-group">
+            <label>Descripción VLAN:</label>
+            <input type="text" id="eq-desc-vlan" value="" maxlength="120">
+          </div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <button type="button" class="btn btn-secondary" id="btn-save-vlan" onclick="saveVlanData()" title="Guardar RD, VRF y descripciones para esta VLAN">💾 Guardar datos de la VLAN</button>
+            <small id="vlan-data-status" class="hint"></small>
+          </div>
+
+          <div class="form-group">
+            <label>IP Pública (solo INTERNET):</label>
+            <input type="text" id="eq-ip-publica" value="" placeholder="203.0.113.0/29" maxlength="60">
           </div>
           <div class="form-group col-span-2">
-            <label>VRF Gestor Raisecom (VLAN / Red):</label>
-            <input type="text" id="eq-gestor-info" value="">
-          </div>
-          <div class="form-group col-span-3">
-            <label>VPN targets (uno por línea, p. ej. 6458:11270 export-extcommunity):</label>
-            <textarea id="eq-vpn-targets" rows="4" class="mono"></textarea>
+            <label>IP LAN (Loopback):</label>
+            <div class="input-with-button">
+              <label class="checkbox-inline"><input type="checkbox" id="eq-loopback-auto" onchange="onLoopbackToggle()"> ¿Se necesita loopback?</label>
+              <input type="text" id="eq-loopback" value="" class="input-highlight" readonly placeholder="Asignada por el sistema (10.212.100.1 - 10.212.100.254 /32)">
+            </div>
           </div>
         </div>
       </div>
@@ -286,9 +251,7 @@
                   <th style="width: 100px;">Marca</th>
                   <th style="width: 120px;">Modelo</th>
                   <th>Hostname</th>
-                  <th style="width: 130px;">IP Admon.</th>
-                  <th style="width: 140px;">Int In</th>
-                  <th style="width: 200px;">Int Out</th>
+                  <th style="width: 150px;">IP Admon.</th>
                   <th style="width: 60px;">Acción</th>
                 </tr>
               </thead>
@@ -307,10 +270,6 @@
           <div class="form-group">
             <label>Equipo Óptico Demarcador (Raisecom):</label>
             <input type="text" id="m-raisecom" value="">
-          </div>
-          <div class="form-group">
-            <label>Tramo de enlace hacia el cliente (en la ruta):</label>
-            <input type="text" id="m-enlace" value="" placeholder="FO">
           </div>
           <div class="form-group col-span-2">
             <label>Observaciones de Planta Externa / Medio (opcional, se agrega bajo la ruta):</label>
@@ -443,6 +402,10 @@
           <label for="import-file">Archivo .xlsx (una hoja por segmento /24):</label>
           <input type="file" id="import-file" accept=".xlsx" required>
         </div>
+        <div class="form-group">
+          <label for="import-isla">Isla / Central de estos segmentos (opcional):</label>
+          <input type="text" id="import-isla" list="islas-datalist" maxlength="60" placeholder="Si se deja vacío se conserva la isla actual">
+        </div>
         <fieldset class="radio-group">
           <legend>Modo de importación</legend>
           <label><input type="radio" name="import-mode" value="merge" checked> <strong>Combinar (recomendado)</strong> — agrega y actualiza IPs; las IPs ya ocupadas en Firebase se conservan.</label>
@@ -522,6 +485,31 @@
     </div>
   </div>
 
+  <!-- MODAL: ASIGNAR ISLA A SEGMENTO -->
+  <div id="isla-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="isla-modal-title" hidden>
+    <form class="modal-container modal-sm" onsubmit="submitAssignIsla(event)">
+      <div class="modal-header">
+        <div class="modal-title"><span aria-hidden="true">🏷</span><h3 id="isla-modal-title">Asignar isla al segmento</h3></div>
+        <button type="button" class="btn-modal-close" onclick="closeModal('isla-modal')" title="Cerrar">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-help" id="isla-modal-summary"></p>
+        <div class="form-group">
+          <label for="isla-modal-input">Isla / Central:</label>
+          <input type="text" id="isla-modal-input" list="islas-datalist" maxlength="60" required>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span></span>
+        <div class="modal-buttons">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('isla-modal')">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <datalist id="islas-datalist"></datalist>
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
   <script src="app.js"></script>

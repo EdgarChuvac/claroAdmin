@@ -25,50 +25,70 @@ def test_clean_text_strips_control_characters():
     assert clean_text("Juan\nPérez\x00", 80) == "Juan Pérez"
 
 
-def test_internet_template_includes_vpn_block():
-    text = generate_format_text({"titulo": "INTERNET CORPORATIVO", "cliente": "X"})
-    assert "ip vpn-instance INTERNET_GT_METRO" in text
-    assert "import route-policy FILTROINTERNET" in text
-    assert "export route-policy EXP_INTERNET_GT_METRO" in text
-    assert "traffic-policy pt-BCP38-PUBLICAS network inbound" in text
-    assert text.count("vpn-target") == 13
+def test_only_internet_and_datos_services():
+    catalog = default_catalog()
+    assert set(catalog.services) == {"INTERNET", "DATOS"}
+    # Altas antiguas con el título largo siguen resolviendo a INTERNET.
+    assert catalog.service("INTERNET CORPORATIVO").banner == "INTERNET CORPORATIVO"
+    assert catalog.service("DATOS").banner == "DATOS CORPORATIVO"
 
 
-def test_datos_template_has_no_internet_policies():
-    text = generate_format_text({"titulo": "DATOS", "cliente": "X", "vrf_name": "VRF_CLIENTE",
-                                 "rd": "6458:500", "vpn_targets": ["6458:500 export-extcommunity"]})
-    assert text.startswith("DATOS\nDATOS X")
-    assert "ALTA DE DATOS" in text
-    assert "ip vpn-instance VRF_CLIENTE" in text
-    assert "  vpn-target 6458:500 export-extcommunity" in text
-    assert "FILTROINTERNET" not in text
-    assert "BCP38" not in text
-    assert "INTERNET_GT_METRO" not in text
-    assert "• DATOS LOCAL 300 MBPS  (ACEPTADO)" in text
+def test_format_prints_only_filled_fields():
+    text = generate_format_text({"titulo": "DATOS", "cliente": "X", "disenador": "ING", "fecha": "01-10-2026"})
+    assert text.startswith("DISEÑO REALIZADO POR ING | FECHA 01-10-2026\n")
+    assert "ALTA DE DATOS CORPORATIVO" in text
+    for absent in ("RECURSOS ASIGNADOS", "LOOPBACK", "ISLA", "VLAN", "PRE-SHARED KEY", "ip vpn-instance",
+                   "ACEPTADO", "VELOCIDAD", "GESTOR_RAISECOM"):
+        assert absent not in text
 
 
-def test_vpn_block_omitted_without_vrf():
-    text = generate_format_text({"titulo": "ACCESO EMPRESARIAL", "cliente": "X"})
-    assert "ip vpn-instance" not in text
-    assert "ALTA DE ACCESO EMPRESARIAL" in text
+def test_sin_factibilidad_is_printed():
+    text = generate_format_text({"sin_factibilidad": True})
+    assert "Factibilidad:\nSIN FACTIBILIDAD\n" in text
 
 
-def test_form_values_override_template_even_if_empty():
-    text = generate_format_text({"titulo": "INTERNET CORPORATIVO", "vrf_name": ""})
-    assert "ip vpn-instance" not in text
+def test_ip_publica_only_for_internet():
+    internet = generate_format_text({"titulo": "INTERNET", "ip_publica": "203.0.113.0/29"})
+    datos = generate_format_text({"titulo": "DATOS", "ip_publica": "203.0.113.0/29"})
+    assert "IP PUBLICA 203.0.113.0/29" in internet
+    assert "IP PUBLICA" not in datos
 
 
-def test_medio_fields_are_used():
+def test_route_follows_numbering_and_medio():
     text = generate_format_text({
-        "equipos_claro": [{"rol": "PE", "marca": "HUAWEI", "modelo": "NE40E"}],
-        "enlace_medio": "RADIO",
+        "medio": "GPON",
+        "equipo_cpe": "CPE-1",
+        "equipos_claro": [
+            {"no": "2", "rol": "SW", "marca": "HUAWEI", "modelo": "ATN980C", "hostname": "SW-1",
+             "ip_admon": "192.0.2.2"},
+            {"no": "1", "rol": "PE", "marca": "HUAWEI", "modelo": "NE40E", "hostname": "PE-1",
+             "ip_admon": "192.0.2.1"},
+        ],
         "obs_medio": "TENDIDO NUEVO",
-        "equipo_raisecom": "RAISECOM X",
         "ips_adicionales": ["10.0.0.3"],
     })
-    assert "PE HUAWEI NE40E ==> RADIO ==> (CLIENTE) RAISECOM X --> CISCO C921" in text
+    assert ("PE HUAWEI NE40E PE-1 (192.0.2.1) --> SW HUAWEI ATN980C SW-1 (192.0.2.2) "
+            "==> G-PON ==> (CLIENTE) RAISECOM RAX711-L --> CPE-1") in text
     assert "OBSERVACIONES DE MEDIO: TENDIDO NUEVO" in text
     assert "10.0.0.3    ADICIONAL" in text
+
+
+def test_monitoring_block_replaces_psk_field():
+    catalog = default_catalog().__class__(**vars(default_catalog()))
+    catalog.network_defaults = catalog.network_defaults.model_copy(update={"psk_monitoreo": "PSK-CONFIG"})
+    text = generate_format_text({"id_servicio": "S-9", "cliente": "CLI", "equipo_cpe": "CPE-9",
+                                 "loopback": "10.212.100.7", "psk": "IGNORADA"}, catalog)
+    assert text.endswith(
+        "FAVOR DE AGREGAR LOOPBACK AL MONITOREO EN NMIS E ISE\n"
+        "************************************************\n\n"
+        "ID DEL SERVICIO:  S-9\n"
+        "LOOPBACK 5 :  10.212.100.7\n"
+        "NOMBRE DEL CLIENTE: CLI\n"
+        "EQUIPO: CPE-9\n"
+        "PRE-SHARED KEY: PSK-CONFIG"
+    )
+    assert "LOOPBACK 10.212.100.7/32" in text
+    assert "IGNORADA" not in text
 
 
 def test_all_templates_are_valid():

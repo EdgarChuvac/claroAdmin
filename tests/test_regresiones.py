@@ -126,7 +126,8 @@ def test_guarded_writes_skip_concurrently_modified_ips(repo):
 
 
 def test_alta_does_not_store_psk_in_form_data(client):
-    res = client.post("/api/altas", json={"data": {"id_servicio": "S-1", "cliente": "X", "psk": "SECRETA"}},
+    res = client.post("/api/altas", json={"data": {"id_servicio": "S-1", "cliente": "X", "psk": "SECRETA",
+                                           "sin_factibilidad": True}},
                       headers=OPERATOR)
     doc = client.get(f"/api/altas/{res.json()['alta_id']}").json()
     assert "psk" not in doc["form_data"]
@@ -135,7 +136,7 @@ def test_alta_does_not_store_psk_in_form_data(client):
 def test_concurrent_identical_altas_create_one(client):
     from concurrent.futures import ThreadPoolExecutor
 
-    payload = {"data": {"id_servicio": "S-C", "cliente": "X"}}
+    payload = {"data": {"id_servicio": "S-C", "cliente": "X", "sin_factibilidad": True, "loopback_auto": True}}
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(lambda _: client.post("/api/altas", json=payload, headers=OPERATOR).json(), range(6)))
     assert len({r["alta_id"] for r in results}) == 1

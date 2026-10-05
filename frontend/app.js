@@ -14,6 +14,11 @@ const state = {
   reservedForService: new Map(), // ip -> service_id reservado en esta sesión
   registeredAlta: null,          // { alta_id, text } del último registro vigente
   releaseTarget: null,
+  sinFactibilidad: false,
+  islaSegments: [],     // subredes de la isla seleccionada (sin detalle de IPs)
+  vlanCatalog: [],      // datos guardados (RD, VRF, descripciones) de las VLAN de la isla
+  currentVlan: "",      // "" = sin elegir, "*" = todas
+  inventoryRequestId: 0,
   blocksRequestId: 0,
   formatRequestId: 0,
 };
@@ -195,6 +200,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateGenerationAvailability();
   await loadInventory();
   loadAltasHistory();
+  $("p-id-servicio").addEventListener("change", () => { if ($("eq-loopback-auto").checked) onLoopbackToggle(); });
 });
 
 function initAccessibility() {
@@ -225,7 +231,21 @@ function initTabs() {
   });
 }
 
+// Las pestañas de captura se habilitan cuando la factibilidad está cargada o se marcó «Sin factibilidad».
+function factibilidadResuelta() {
+  return state.sinFactibilidad || $("p-factibilidad-bloque").value.trim().length > 0;
+}
+
+function isGatedTab(tabId) {
+  return !["tab-principal", "tab-consultas"].includes(tabId);
+}
+
 function activateTab(tabId) {
+  if (isGatedTab(tabId) && !factibilidadResuelta()) {
+    toast("Cargue la factibilidad o pulse «Sin factibilidad» para continuar.", "warning");
+    tabId = "tab-principal";
+    $("p-factibilidad-quick-paste").focus();
+  }
   document.querySelectorAll(".tab-btn").forEach(b => {
     const active = b.dataset.tab === tabId;
     b.classList.toggle("active", active);
@@ -239,11 +259,12 @@ function activateTab(tabId) {
 function initKeyboard() {
   document.addEventListener("keydown", e => {
     if (e.key === "F2") {
+      // Un único manejador: abre el editor con la factibilidad ya cargada (o lo cierra).
       e.preventDefault();
       if ($("factibilidad-modal").hidden) openFactibilidadModal();
       else closeModal("factibilidad-modal");
     } else if (e.key === "Escape") {
-      for (const id of ["factibilidad-modal", "import-modal", "release-modal", "alta-modal"]) {
+      for (const id of ["factibilidad-modal", "import-modal", "release-modal", "alta-modal", "isla-modal"]) {
         if (!$(id).hidden) closeModal(id);
       }
       if (!$("confirm-modal").hidden) $("confirm-cancel").click();
@@ -307,14 +328,12 @@ async function loadConfig() {
   select.replaceChildren(...Object.entries(cfg.services).map(([name, tpl]) => new Option(tpl.label, name)));
 
   const d = cfg.network_defaults;
-  $("eq-gestor-info").value = `VLAN ${d.vlan_gestor} | ${d.red_gestor} | GW: ${d.gw_gestor} | RAISECOM: ${d.ip_gestor_raisecom}`;
   $("m-raisecom").value = d.equipo_raisecom;
-  $("m-enlace").value = d.enlace_medio;
   $("s-equipo").value = d.equipo_cpe;
+  $("eq-loopback").placeholder = `Asignada por el sistema (${d.loopback_pool_start} - ${d.loopback_pool_end} /32)`;
 
   renderCentralPresets();
   applyServiceTemplate(select.value);
-  if (cfg.centrales.length) loadCentral(cfg.centrales[0].id);
 }
 
 function renderCentralPresets() {
@@ -330,40 +349,49 @@ function loadCentral(centralId) {
   const central = state.config.centrales.find(c => c.id === centralId);
   if (!central) return;
   $("equipment-tbody").replaceChildren();
-  if (central.isla) $("eq-isla").value = central.isla;
   central.equipos.forEach(eq => addEquipmentRow(eq));
   markFormatStale();
+}
+
+function currentTemplate() {
+  return state.config ? state.config.services[$("p-titulo").value] : null;
 }
 
 function applyServiceTemplate(typeName) {
   if (!state.config) return;
   const tpl = state.config.services[typeName];
   if (!tpl) return;
-  $("eq-vrf-name").value = tpl.vrf_name;
-  $("eq-vrf-desc").value = tpl.vrf_desc;
-  $("eq-rd").value = tpl.rd;
-  $("eq-vpn-targets").value = tpl.vpn_targets.join("\n");
-  $("s-observaciones").value = tpl.observaciones;
-  const velocidad = $("s-velocidad").value.trim() || "300 MBPS";
-  const principal = tpl.item_principal.replace("{tipo}", tpl.label).replace("{velocidad}", velocidad);
-  $("s-items").value = [principal, ...tpl.items_adicionales].map(i => `${i}  (ACEPTADO)`).join("\n");
+  // INTERNET habilita la IP pública; DATOS no la usa.
+  const publica = $("eq-ip-publica");
+  publica.disabled = !tpl.ip_publica;
+  if (!tpl.ip_publica) publica.value = "";
   $("service-template-warning").hidden = !tpl.pendiente_validar;
   $("generar-title").textContent = `Formato Final de Alta de ${tpl.banner}`;
+  fillVlanData();
 }
 
 function onServiceTypeChange(typeName) {
   const factArea = $("p-factibilidad-bloque");
   if (factArea.value) {
-    factArea.value = factArea.value.replace(/TITULO:\s*\*\*\*[^*]+\*\*\*/i, `TITULO:\t***${typeName}***`);
+    const tpl = state.config && state.config.services[typeName];
+    const title = tpl ? tpl.banner : typeName;
+    factArea.value = factArea.value.replace(/TITULO:\s*\*\*\*[^*]+\*\*\*/i, `TITULO:\t***${title}***`);
   }
   applyServiceTemplate(typeName);
   markFormatStale();
 }
 
 // ===========================================================================
-// Inventario de IPs (Firestore)
+// Inventario de IPs (Firestore): Isla -> VLAN -> Segmento /24 -> Subred -> IP
 // ===========================================================================
-async function loadInventory(preferredSheet) {
+const NO_ISLA = "__sin_isla__";
+
+function selectedIsla() {
+  const value = $("eq-isla").value;
+  return value === NO_ISLA ? "" : value;
+}
+
+async function loadInventory() {
   const badge = $("inventory-badge");
   try {
     const data = await api("/api/sheets");
@@ -374,21 +402,144 @@ async function loadInventory(preferredSheet) {
       : "Inventario vacío: importe un Excel";
     badge.classList.toggle("empty", !state.sheets.length);
     badge.classList.remove("error");
-
-    const sheetSelect = $("ipam-sheet-select");
-    const current = preferredSheet || sheetSelect.value;
-    sheetSelect.replaceChildren(...state.sheets.map(s =>
-      new Option(`${s.sheet} (${s.available_count} libres)`, s.sheet)));
-    if (!state.sheets.length) {
-      clearIPAMSelection("Sin inventario");
-      return;
-    }
-    sheetSelect.value = state.sheets.some(s => s.sheet === current) ? current : state.sheets[0].sheet;
-    await loadBlocksForSheet(sheetSelect.value);
+    await loadIslas();
   } catch (err) {
     badge.classList.add("error");
     $("inventory-status").textContent = "Error al conectar con Firebase";
     showError(err, "No se pudo cargar el inventario");
+  }
+}
+
+async function loadIslas(preferred) {
+  const data = await api("/api/islas");
+  const select = $("eq-isla");
+  const before = select.value;
+  const current = preferred !== undefined ? preferred : before;
+  const options = [new Option("Seleccione la isla / central", ""), ...data.islas.map(i => new Option(i, i))];
+  if (data.has_unassigned) options.push(new Option("(Segmentos sin isla asignada)", NO_ISLA));
+  select.replaceChildren(...options);
+  $("islas-datalist").replaceChildren(...data.islas.map(i => el("option", { value: i })));
+  if ([...select.options].some(o => o.value === current)) select.value = current;
+  await onIslaChange({ keepSelection: select.value === before });
+}
+
+async function onIslaChange({ keepSelection = false } = {}) {
+  const requestId = ++state.inventoryRequestId;
+  const isla = $("eq-isla").value;
+  const previousVlan = keepSelection ? state.currentVlan : "";
+  state.islaSegments = [];
+  state.vlanCatalog = [];
+  if (!isla) {
+    fillVlanSelect();
+    clearIPAMSelection("Seleccione primero la isla");
+    $("ipam-sheet-select").replaceChildren(new Option("Seleccione primero la isla", ""));
+    updateGenerationAvailability();
+    return;
+  }
+  if (!keepSelection) loadCentralForIsla(isla);
+  try {
+    const islaParam = encodeURIComponent(selectedIsla());
+    const [segments, vlans] = await Promise.all([
+      api(`/api/segments?isla=${islaParam}`),
+      selectedIsla() ? api(`/api/vlans?isla=${islaParam}`) : Promise.resolve({ vlans: [] }),
+    ]);
+    if (requestId !== state.inventoryRequestId) return;
+    state.islaSegments = segments.segments || [];
+    state.vlanCatalog = vlans.vlans || [];
+  } catch (err) {
+    showError(err, "No se pudieron cargar los segmentos de la isla");
+  }
+  fillVlanSelect(previousVlan);
+  await onVlanChange({ keepSelection });
+}
+
+function loadCentralForIsla(isla) {
+  if (!state.config) return;
+  const central = state.config.centrales.find(c => (c.isla || "").toUpperCase() === isla.toUpperCase());
+  if (central) loadCentral(central.id);
+}
+
+function fillVlanSelect(preferred = "") {
+  const select = $("eq-vlan-select");
+  const free = {};
+  for (const seg of state.islaSegments) {
+    if (!seg.vlan) continue;
+    free[seg.vlan] = (free[seg.vlan] || 0) + (seg.available_count || 0);
+  }
+  for (const v of state.vlanCatalog) if (!(v.vlan in free)) free[v.vlan] = null;
+  const vlans = Object.keys(free).sort((a, b) => Number(a) - Number(b));
+  const options = [new Option(state.islaSegments.length ? "Seleccione la VLAN" : "Sin segmentos en esta isla", "")];
+  vlans.forEach(v => options.push(new Option(free[v] === null ? `VLAN ${v} (sin IPs cargadas)` : `VLAN ${v} — ${free[v]} libres`, v)));
+  if (state.islaSegments.length) options.push(new Option("Todas las VLAN de la isla", "*"));
+  select.replaceChildren(...options);
+  select.value = [...select.options].some(o => o.value === preferred) ? preferred : "";
+}
+
+async function onVlanChange({ keepSelection = false } = {}) {
+  state.currentVlan = $("eq-vlan-select").value;
+  fillVlanData();
+  const sheetSelect = $("ipam-sheet-select");
+  if (!state.currentVlan) {
+    sheetSelect.replaceChildren(new Option("Seleccione primero la VLAN", ""));
+    clearIPAMSelection("Seleccione primero la VLAN");
+    markFormatStale();
+    return;
+  }
+  const segments = state.islaSegments.filter(s => state.currentVlan === "*" || s.vlan === state.currentVlan);
+  const sheets = [...new Set(segments.map(s => s.sheet))];
+  if (!sheets.length) {
+    sheetSelect.replaceChildren(new Option("No hay segmentos con esta VLAN", ""));
+    clearIPAMSelection("No hay IPs cargadas para esta VLAN");
+    return;
+  }
+  const previous = keepSelection ? sheetSelect.value : "";
+  sheetSelect.replaceChildren(...sheets.map(sheet => {
+    const libres = segments.filter(s => s.sheet === sheet).reduce((acc, s) => acc + (s.available_count || 0), 0);
+    return new Option(`${sheet} (${libres} libres)`, sheet);
+  }));
+  sheetSelect.value = sheets.includes(previous) ? previous : sheets[0];
+  await loadBlocksForSheet(sheetSelect.value);
+}
+
+function vlanForData() {
+  if (state.currentVlan && state.currentVlan !== "*") return state.currentVlan;
+  return state.selectedBlock ? state.selectedBlock.vlan || "" : "";
+}
+
+// RD, VRF y descripciones: lo guardado para la VLAN; si no hay nada, la plantilla del servicio.
+function fillVlanData() {
+  const vlan = vlanForData();
+  const saved = state.vlanCatalog.find(v => v.vlan === vlan);
+  const tpl = currentTemplate();
+  const values = saved
+    ? { rd: saved.rd, vrf_name: saved.vrf_name, vrf_desc: saved.vrf_desc, vlan_desc: saved.vlan_desc }
+    : { rd: tpl ? tpl.rd : "", vrf_name: tpl ? tpl.vrf_name : "", vrf_desc: tpl ? tpl.vrf_desc : "", vlan_desc: "" };
+  $("eq-rd").value = values.rd || "";
+  $("eq-vrf-name").value = values.vrf_name || "";
+  $("eq-vrf-desc").value = values.vrf_desc || "";
+  $("eq-desc-vlan").value = values.vlan_desc || "";
+  $("vlan-data-status").textContent = !vlan ? "" : saved
+    ? `Datos guardados de la VLAN ${vlan}${saved.updated_by ? ` (por ${saved.updated_by})` : ""}.`
+    : `La VLAN ${vlan} aún no tiene datos guardados.`;
+}
+
+async function saveVlanData() {
+  if (!ensureOperator()) return;
+  const vlan = vlanForData();
+  if (!vlan) {
+    toast("Seleccione una VLAN antes de guardar sus datos.", "warning");
+    return;
+  }
+  try {
+    const r = await api("/api/vlans", { method: "PUT", json: {
+      isla: selectedIsla(), vlan, rd: $("eq-rd").value.trim(), vrf_name: $("eq-vrf-name").value.trim(),
+      vrf_desc: $("eq-vrf-desc").value.trim(), vlan_desc: $("eq-desc-vlan").value.trim(),
+    } });
+    state.vlanCatalog = [...state.vlanCatalog.filter(v => v.vlan !== vlan), r.vlan];
+    fillVlanData();
+    toast(r.message, "success", r.operation_id);
+  } catch (err) {
+    showError(err, "No se pudieron guardar los datos de la VLAN");
   }
 }
 
@@ -407,10 +558,12 @@ async function loadBlocksForSheet(sheetName, preferredSegment) {
   const requestId = ++state.blocksRequestId;
   const previousSegment = preferredSegment || (state.selectedBlock && state.selectedBlock.segment_id);
   clearIPAMSelection("Cargando subredes...");
+  if (!sheetName) return;
   try {
     const data = await api(`/api/blocks?sheet=${encodeURIComponent(sheetName)}`);
     if (requestId !== state.blocksRequestId) return;
-    state.blocks = data.blocks || [];
+    // La VLAN limita las subredes (y por lo tanto las IPs) que se ofrecen.
+    state.blocks = (data.blocks || []).filter(b => !state.currentVlan || state.currentVlan === "*" || b.vlan === state.currentVlan);
     const blockSelect = $("ipam-block-select");
     if (!state.blocks.length) {
       clearIPAMSelection("No se detectaron subredes");
@@ -447,7 +600,7 @@ function selectBlock(idx) {
   state.selectedBlock = block;
   $("eq-red-wan").value = block.network_ip;
   $("eq-gw-wan").value = block.gateway_ip || "";
-  $("eq-vlan-num").value = block.vlan || "";
+  if (state.currentVlan === "*") fillVlanData();
 
   const freeSelect = $("ipam-free-select");
   if (!block.available_ips.length) {
@@ -482,9 +635,8 @@ function assignFirstFreeIP() {
     toast("No hay IPs libres en esta subred.", "warning");
     return;
   }
-  const count = Math.min(Math.max(parseInt($("s-ips").value, 10) || 1, 1), block.available_ips.length);
-  setSelectedFreeIPs(block.available_ips.slice(0, count).map(i => i.ip));
-  toast(`Seleccionada(s): ${state.selectedFreeIPs.join(", ")}. Pulse “Reservar” para confirmarlas.`, "info");
+  setSelectedFreeIPs([block.available_ips[0].ip]);
+  toast(`Seleccionada: ${state.selectedFreeIPs[0]}. Pulse “Reservar” para confirmarla.`, "info");
 }
 
 function renderAssignedTable(block) {
@@ -497,6 +649,17 @@ function renderAssignedTable(block) {
   ));
   $("assigned-tbody").replaceChildren(...rows);
   $("assigned-count").textContent = String(block.assigned_ips.length);
+}
+
+// Recarga contadores e IPs manteniendo isla, VLAN, segmento y subred seleccionados.
+async function refreshInventorySelection() {
+  const sheet = $("ipam-sheet-select").value;
+  const segment = state.selectedBlock && state.selectedBlock.segment_id;
+  await loadInventory();
+  if (sheet && [...$("ipam-sheet-select").options].some(o => o.value === sheet)) {
+    $("ipam-sheet-select").value = sheet;
+    await loadBlocksForSheet(sheet, segment);
+  }
 }
 
 async function confirmIPReservation() {
@@ -525,8 +688,7 @@ async function confirmIPReservation() {
     const result = await api("/api/reservations", { method: "POST", json: { ips, service_id: serviceId, purpose: "WAN" } });
     ips.forEach(ip => state.reservedForService.set(ip, serviceId));
     toast(result.message, "success", result.operation_id);
-    const sheet = block.sheet_name;
-    await loadInventory(sheet);
+    await refreshInventorySelection();
     // conservar la selección reservada en el formulario
     $("eq-ip-wan").value = ips[0];
     $("eq-ips-adicionales").value = ips.slice(1).join(", ");
@@ -562,10 +724,60 @@ async function submitRelease(event) {
     closeModal("release-modal");
     state.reservedForService.delete(item.ip);
     toast(result.message, "success", result.operation_id);
-    await loadInventory(state.selectedBlock ? state.selectedBlock.sheet_name : undefined);
+    await refreshInventorySelection();
   } catch (err) {
     showError(err, "No se pudo liberar");
   }
+}
+
+// --- Isla de un segmento ----------------------------------------------------
+function openAssignIslaModal() {
+  if (!ensureOperator()) return;
+  const sheet = $("ipam-sheet-select").value;
+  if (!sheet) {
+    toast("Seleccione un segmento /24.", "warning");
+    return;
+  }
+  $("isla-modal-summary").textContent = `Segmento ${sheet}: sus subredes aparecerán al elegir esta isla.`;
+  $("isla-modal-input").value = selectedIsla();
+  openModal("isla-modal");
+}
+
+async function submitAssignIsla(event) {
+  event.preventDefault();
+  const sheet = $("ipam-sheet-select").value;
+  try {
+    const r = await api(`/api/sheets/${encodeURIComponent(sheet)}/isla`, { method: "PUT", json: { isla: $("isla-modal-input").value.trim() } });
+    closeModal("isla-modal");
+    toast(r.message, "success", r.operation_id);
+    await loadIslas(r.isla);
+  } catch (err) {
+    showError(err, "No se pudo asignar la isla");
+  }
+}
+
+// --- Loopback automática ----------------------------------------------------
+function onLoopbackToggle() {
+  return refreshLoopback(true);
+}
+
+async function refreshLoopback(markStale) {
+  const input = $("eq-loopback");
+  if (!$("eq-loopback-auto").checked) {
+    input.value = "";
+    if (markStale) markFormatStale();
+    return;
+  }
+  try {
+    const serviceId = $("p-id-servicio").value.trim();
+    const r = await api(`/api/loopbacks/next?service_id=${encodeURIComponent(serviceId)}`);
+    input.value = r.cidr;
+    input.title = r.assigned ? "Loopback ya asignada a este servicio" : "Se reserva al registrar el alta";
+  } catch (err) {
+    input.value = "";
+    showError(err, "No se pudo obtener la loopback");
+  }
+  if (markStale) markFormatStale();
 }
 
 // --- Importar / exportar ---------------------------------------------------
@@ -599,6 +811,7 @@ async function submitImport(event) {
   formData.append("file", file);
   formData.append("mode", mode);
   formData.append("confirm_replace", String($("import-confirm").checked));
+  formData.append("isla", $("import-isla").value.trim());
 
   const button = $("btn-submit-import");
   button.disabled = true;
@@ -664,7 +877,7 @@ function downloadBlob(blob, filename) {
 function getEquipmentRowsData() {
   return Array.from($("equipment-tbody").querySelectorAll("tr")).map(tr => {
     const v = Array.from(tr.querySelectorAll("input")).map(i => i.value.trim());
-    return { no: v[0], rol: v[1], marca: v[2], modelo: v[3], hostname: v[4], ip_admon: v[5], int_in: v[6], int_out: v[7] };
+    return { no: v[0], rol: v[1], marca: v[2], modelo: v[3], hostname: v[4], ip_admon: v[5] };
   });
 }
 
@@ -672,25 +885,12 @@ function addEquipmentRow(data = {}) {
   const tbody = $("equipment-tbody");
   const headers = document.querySelectorAll("#equipment-table th");
   const values = [data.no || tbody.querySelectorAll("tr").length + 1, data.rol || "", data.marca || "", data.modelo || "",
-    data.hostname || "", data.ip_admon || "", data.int_in || "", data.int_out || ""];
+    data.hostname || "", data.ip_admon || ""];
   const tr = el("tr", {}, ...values.map((value, index) =>
     el("td", {}, el("input", { type: "text", value: String(value), "aria-label": headers[index].textContent.trim() }))));
   tr.appendChild(el("td", { class: "center" },
     el("button", { type: "button", class: "btn-danger-sm", onclick: () => { tr.remove(); markFormatStale(); } }, "Eliminar")));
   tbody.appendChild(tr);
-}
-
-function generateRandomPSK() {
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const values = new Uint32Array(20);
-  crypto.getRandomValues(values);
-  $("eq-psk").value = Array.from(values, value => chars[value % chars.length]).join("");
-  markFormatStale();
-}
-
-function togglePSK() {
-  const input = $("eq-psk");
-  input.type = input.type === "password" ? "text" : "password";
 }
 
 // ===========================================================================
@@ -701,6 +901,7 @@ function handleQuickPaste(e) {
   const pasteData = (e.clipboardData || window.clipboardData).getData("text");
   if (!pasteData || !pasteData.trim()) return;
   $("p-factibilidad-bloque").value = pasteData;
+  state.sinFactibilidad = false;
   updateFactibilidadBadge();
   const titleMatch = pasteData.match(/TITULO:\s*\*\*\*([^*]+)\*\*\*/i);
   if (titleMatch) {
@@ -718,30 +919,44 @@ function handleQuickPaste(e) {
   }
   const quickInput = $("p-factibilidad-quick-paste");
   quickInput.value = "";
-  quickInput.placeholder = "✅ Factibilidad cargada. Presiona F2 para ver.";
+  quickInput.placeholder = "✅ Factibilidad cargada. Presiona F2 para ver o editar.";
   markFormatStale();
 }
 
-function handleQuickPasteKey(e) {
-  if (e.key === "F2") {
-    e.preventDefault();
-    openFactibilidadModal();
+function toggleSinFactibilidad() {
+  if ($("p-factibilidad-bloque").value.trim()) {
+    toast("Ya hay una factibilidad cargada. Bórrela desde «Ver / Editar (F2)» si el servicio no la tiene.", "warning");
+    return;
   }
+  state.sinFactibilidad = !state.sinFactibilidad;
+  updateFactibilidadBadge();
+  markFormatStale();
+  if (state.sinFactibilidad) toast("Continuando sin factibilidad.", "info");
 }
 
 function updateFactibilidadBadge() {
   const loaded = $("p-factibilidad-bloque").value.trim().length > 0;
+  if (loaded) state.sinFactibilidad = false;
   const badge = $("factibilidad-status-badge");
-  badge.className = `fact-badge ${loaded ? "loaded" : "empty"}`;
-  badge.replaceChildren(
-    el("span", { class: "badge-icon" }, loaded ? "✅" : "⚪"),
-    el("span", { class: "badge-text" }, loaded ? "Factibilidad Cargada" : "Sin Factibilidad"));
+  const [cls, icon, text] = loaded ? ["loaded", "✅", "Factibilidad cargada"]
+    : state.sinFactibilidad ? ["skipped", "🚫", "Sin factibilidad"]
+    : ["empty", "⚪", "Factibilidad pendiente"];
+  badge.className = `fact-badge ${cls}`;
+  badge.replaceChildren(el("span", { class: "badge-icon" }, icon), el("span", { class: "badge-text" }, text));
+  const button = $("btn-sin-factibilidad");
+  button.setAttribute("aria-pressed", String(state.sinFactibilidad));
+  button.classList.toggle("active", state.sinFactibilidad);
+  button.disabled = loaded;
+  $("factibilidad-gate-hint").hidden = factibilidadResuelta();
+  updateGenerationAvailability();
 }
 
 function openFactibilidadModal() {
   const text = $("p-factibilidad-bloque").value;
   $("modal-factibilidad-textarea").value = text;
-  $("modal-factibilidad-info").textContent = `${text.trim().length} caracteres cargados`;
+  $("modal-factibilidad-info").textContent = text.trim()
+    ? `${text.trim().length} caracteres cargados`
+    : "Aún no hay factibilidad cargada: pegue el texto aquí.";
   openModal("factibilidad-modal");
   $("modal-factibilidad-textarea").focus();
 }
@@ -751,11 +966,6 @@ function saveFactibilidadModal() {
   updateFactibilidadBadge();
   closeModal("factibilidad-modal");
   markFormatStale();
-}
-
-function openMaps() {
-  const coords = $("u-coordenadas").value.trim();
-  if (coords) window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(coords)}`, "_blank", "noopener,noreferrer");
 }
 
 function initDateField() {
@@ -776,11 +986,18 @@ function updateGenerationAvailability() {
   const canGenerate = missing.length === 0;
   const generateTab = document.querySelector('[data-tab="tab-generar"]');
   const status = $("generation-requirements-status");
-  generateTab.disabled = !canGenerate;
+  const resuelta = factibilidadResuelta();
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    if (isGatedTab(btn.dataset.tab)) btn.classList.toggle("locked", !resuelta);
+  });
+  generateTab.disabled = !canGenerate || !resuelta;
   generateTab.setAttribute("aria-disabled", String(!canGenerate));
   $("btn-update-format").disabled = !canGenerate;
   $("btn-register-alta").disabled = !canGenerate;
-  if (canGenerate) {
+  if (!resuelta) {
+    status.textContent = "Cargue la factibilidad o pulse «Sin factibilidad» para continuar.";
+    status.className = "generation-status pending";
+  } else if (canGenerate) {
     status.textContent = "Todos los campos requeridos están completos.";
     status.className = "generation-status ready";
   } else {
@@ -804,20 +1021,11 @@ function markFormatStale() {
   status.textContent = "Hay cambios sin registrar. Pulse “Registrar alta” para guardar la nueva versión antes de copiarla.";
 }
 
-function parseGestor() {
-  const gestorInfo = $("eq-gestor-info").value;
-  if (!gestorInfo.trim()) return {};
-  const m = gestorInfo.match(/VLAN\s+(\d+).*?([0-9.]+\/\d+).*?GW:\s*([0-9.]+).*?RAISECOM:\s*([0-9.]+)/i);
-  if (!m) throw new Error("El formato de VRF Gestor no es válido. Use: VLAN 836 | 10.40.3.0/24 | GW: 10.40.3.1 | RAISECOM: 10.40.3.120");
-  return { vlan_gestor: m[1], red_gestor: m[2], gw_gestor: m[3], ip_gestor_raisecom: m[4] };
-}
-
 function collectFormData() {
-  const lines = id => $(id).value.split("\n").map(l => l.trim()).filter(Boolean);
   let fecha = $("p-fecha").value;
   const p = fecha.split("-");
   if (p.length === 3 && p[0].length === 4) fecha = `${p[2]}-${p[1]}-${p[0]}`;
-  const [lan, ...lanObs] = $("eq-ip-lan").value.split("|");
+  const tpl = currentTemplate();
   return {
     titulo: $("p-titulo").value,
     id_servicio: $("p-id-servicio").value.trim(),
@@ -826,34 +1034,24 @@ function collectFormData() {
     tel_disenador: $("p-tel-disenador").value,
     fecha,
     factibilidad_bloque: $("p-factibilidad-bloque").value,
-    direccion: $("u-direccion").value,
-    coordenadas: $("u-coordenadas").value,
+    sin_factibilidad: state.sinFactibilidad,
     medio: $("s-medio").value,
-    velocidad: $("s-velocidad").value,
-    ips_count: $("s-ips").value,
     equipo_cpe: $("s-equipo").value,
-    factibilidad: $("s-factibilidad").value,
     observaciones: $("s-observaciones").value,
-    items_aceptados: lines("s-items"),
-    vrf_name: $("eq-vrf-name").value.trim(),
-    vrf_desc: $("eq-vrf-desc").value.trim(),
-    rd: $("eq-rd").value.trim(),
-    vpn_targets: lines("eq-vpn-targets"),
-    isla: $("eq-isla").value,
+    isla: selectedIsla(),
+    vlan_num: vlanForData(),
     red_wan: $("eq-red-wan").value,
-    vlan_num: $("eq-vlan-num").value,
     gw_wan: $("eq-gw-wan").value,
-    desc_vlan: $("eq-desc-vlan").value,
-    lan: (lan || "").trim(),
-    lan_obs: lanObs.join("|").trim(),
     ip_wan: $("eq-ip-wan").value,
     ips_adicionales: $("eq-ips-adicionales").value.split(",").map(s => s.trim()).filter(Boolean),
-    loopback: $("eq-loopback").value,
-    psk: $("eq-psk").value,
-    ...parseGestor(),
+    rd: $("eq-rd").value.trim(),
+    vrf_name: $("eq-vrf-name").value.trim(),
+    vrf_desc: $("eq-vrf-desc").value.trim(),
+    desc_vlan: $("eq-desc-vlan").value.trim(),
+    ip_publica: tpl && tpl.ip_publica ? $("eq-ip-publica").value.trim() : "",
+    loopback_auto: $("eq-loopback-auto").checked,
     equipos_claro: getEquipmentRowsData(),
     equipo_raisecom: $("m-raisecom").value,
-    enlace_medio: $("m-enlace").value,
     obs_medio: $("m-obs-medio").value,
   };
 }
@@ -917,6 +1115,7 @@ async function registerAlta() {
   try {
     const result = await api("/api/altas", { method: "POST", json: { data } });
     $("output-format-textarea").value = result.formatted_text;
+    if (data.loopback_auto) refreshLoopback(false);
     state.registeredAlta = { alta_id: result.alta_id, text: result.formatted_text, service: data.id_servicio };
     $("btn-copy-format").disabled = false;
     $("btn-download-format").disabled = false;

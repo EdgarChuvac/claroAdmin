@@ -34,7 +34,7 @@ from .format_generator import generate_format_text
 from .repository import InventoryError, InventoryRepository
 from .settings import BASE_DIR, Settings, get_settings
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 SAMPLE_EXCEL_PATH = BASE_DIR / "data" / "ejemplo_inventario_ips.xlsx"
 FRONTEND_DIR = BASE_DIR / "frontend"
 
@@ -105,13 +105,14 @@ class EquipmentData(BaseModel):
 class FormatData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    titulo: str = "INTERNET CORPORATIVO"
+    titulo: str = "INTERNET"
     id_servicio: str = ""
     cliente: str = ""
     disenador: str = ""
     tel_disenador: str = ""
     fecha: str = ""
     factibilidad_bloque: str = ""
+    sin_factibilidad: bool = False
     contacto_tec: str = ""
     ejecutivo: str = ""
     consultor: str = ""
@@ -137,6 +138,8 @@ class FormatData(BaseModel):
     ip_wan: str = ""
     ips_adicionales: list[str] = Field(default_factory=list, max_length=64)
     loopback: str = ""
+    loopback_auto: bool = False
+    ip_publica: str = ""
     loopback_id: str = ""
     psk: str = ""
     equipos_claro: list[EquipmentData] = Field(default_factory=list, max_length=30)
@@ -165,7 +168,26 @@ class AltaRequest(BaseModel):
         _validate_service_id(value.id_servicio)
         if not value.cliente.strip():
             raise ValueError("El nombre del cliente es obligatorio para registrar el alta.")
+        if not value.factibilidad_bloque.strip() and not value.sin_factibilidad:
+            raise ValueError("Cargue la factibilidad o marque «Sin factibilidad» antes de registrar el alta.")
         return value
+
+
+class SheetIslaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    isla: str = Field(min_length=1, max_length=60)
+
+
+class VlanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    isla: str = Field(default="", max_length=60)
+    vlan: str = Field(min_length=1, max_length=4)
+    rd: str = Field(default="", max_length=60)
+    vrf_name: str = Field(default="", max_length=80)
+    vrf_desc: str = Field(default="", max_length=120)
+    vlan_desc: str = Field(default="", max_length=120)
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +247,7 @@ def build_state(settings: Settings) -> AppState:
     state = AppState()
     state.settings = settings
     state.catalog = load_catalog(settings.config_dir)
+    state.catalog.network_defaults.psk_monitoreo = settings.monitoreo_psk
     handle = create_memory_handle() if settings.data_backend == "memory" else create_firestore_handle(settings)
     state.backend = handle.backend
     state.repo = InventoryRepository(handle, settings.firestore_collection_prefix,
@@ -452,6 +475,7 @@ async def import_inventory(
     file: Annotated[UploadFile, File(description="Inventario Excel en formato .xlsx")],
     mode: Annotated[Literal["merge", "replace"], Form()] = "merge",
     confirm_replace: Annotated[bool, Form()] = False,
+    isla: Annotated[str, Form(max_length=60)] = "",
 ) -> dict[str, Any]:
     original_name = tracing.clean_text(Path(file.filename or "").name, 120)
     tracing.audit("inventory.import", filename=original_name, mode=mode)
@@ -480,6 +504,7 @@ async def import_inventory(
         lambda: state.repo.import_inventory(
             blocks, mode=mode, filename=original_name, operator=operator,
             operation_id=ctx.operation_id if ctx else "", ignored_sheets=ignored,
+            isla=tracing.clean_text(isla, 60),
         )
     )
     summary = result.to_dict()
@@ -538,11 +563,27 @@ def get_service(service_id: str, state: StateDep) -> dict[str, Any]:
     }
 
 
+def _loopback_range(state: AppState) -> tuple[str, str]:
+    d = state.catalog.network_defaults
+    return d.loopback_pool_start, d.loopback_pool_end
+
+
 @app.post("/api/generate-format")
 def generate_format(req: GenerateFormatRequest, state: StateDep) -> dict[str, str]:
-    """Vista previa: genera el texto sin registrarlo."""
+    """Vista previa: genera el texto sin registrarlo (la loopback se muestra sin reservarse)."""
     data = req.data.model_dump(exclude_none=True, exclude_unset=True)
+    if req.data.loopback_auto:
+        data["loopback"] = state.repo.peek_loopback(req.data.id_servicio.strip(), *_loopback_range(state))
+    else:
+        data.pop("loopback", None)
     return {"formatted_text": generate_format_text(data, state.catalog)}
+
+
+@app.get("/api/loopbacks/next")
+def next_loopback(state: StateDep, service_id: str = Query(default="", max_length=100)) -> dict[str, Any]:
+    service_id = tracing.clean_text(service_id, 100)
+    ip = state.repo.peek_loopback(service_id, *_loopback_range(state))
+    return {"ip": ip, "cidr": f"{ip}/32", "assigned": state.repo.loopback_for_service(service_id) == ip}
 
 
 def _alta_summary(doc: dict[str, Any]) -> dict[str, Any]:
@@ -556,9 +597,23 @@ def _alta_summary(doc: dict[str, Any]) -> dict[str, Any]:
 def create_alta(req: AltaRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
     """Genera el formato de alta y lo registra en la colección ``altas``."""
     data = req.data.model_dump(exclude_none=True, exclude_unset=True)
-    text = generate_format_text(data, state.catalog)
     service_id = _validate_service_id(req.data.id_servicio)
     tracing.audit("alta.create", service_id=service_id, cliente=req.data.cliente)
+    data.pop("loopback", None)
+    if req.data.loopback_auto:
+        data["loopback"] = state.repo.assign_loopback(
+            service_id, operator, tracing.current_operation_id(), *_loopback_range(state)
+        )
+        tracing.audit("alta.create", service_id=service_id, loopback=data["loopback"])
+    if req.data.isla and req.data.vlan_num.isdigit() and any(
+        (req.data.rd, req.data.vrf_name, req.data.vrf_desc, req.data.desc_vlan)
+    ):
+        # Lo que se capturó para la VLAN queda guardado para autocompletar la siguiente alta.
+        state.repo.upsert_vlan(req.data.isla, req.data.vlan_num, {
+            "rd": req.data.rd, "vrf_name": req.data.vrf_name,
+            "vrf_desc": req.data.vrf_desc, "vlan_desc": req.data.desc_vlan,
+        }, operator, tracing.current_operation_id())
+    text = generate_format_text(data, state.catalog)
     record = {
         "service_id": service_id,
         "cliente": req.data.cliente.strip(),
@@ -567,6 +622,7 @@ def create_alta(req: AltaRequest, state: StateDep, operator: OperatorDep) -> dic
         "red_wan": req.data.red_wan,
         "isla": req.data.isla,
         "vlan": req.data.vlan_num,
+        "loopback": data.get("loopback"),
         "operator": operator,
         "operation_id": tracing.current_operation_id(),
         "formatted_text": text,
@@ -618,6 +674,47 @@ def list_operations(
 ) -> dict[str, Any]:
     ops = state.repo.list_operations(tracing.clean_text(operator, 80), tracing.clean_text(service_id, 100), limit)
     return {"operations": _serialize(ops)}
+
+
+@app.get("/api/islas")
+def list_islas(state: StateDep) -> dict[str, Any]:
+    islas = set(state.repo.list_islas())
+    islas |= {c.isla.upper() for c in state.catalog.centrales if c.isla}
+    unassigned = any(not s.get("isla") for s in state.repo.list_sheets())
+    return {"islas": sorted(islas), "has_unassigned": unassigned}
+
+
+@app.get("/api/segments")
+def list_segments(state: StateDep, isla: str | None = Query(default=None, max_length=60)) -> dict[str, Any]:
+    """Subredes de una isla (``isla=`` vacío = segmentos sin isla asignada)."""
+    isla = None if isla is None else tracing.clean_text(isla, 60)
+    return {"isla": isla, "segments": _serialize(state.repo.list_segments(isla))}
+
+
+@app.put("/api/sheets/{sheet}/isla")
+def set_sheet_isla(sheet: str, req: SheetIslaRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
+    sheet = _validated_sheet(sheet)
+    tracing.audit("inventory.set_isla", sheet=sheet, isla=req.isla)
+    result = state.repo.set_sheet_isla(sheet, tracing.clean_text(req.isla, 60))
+    return {"message": f"Segmento {sheet} asignado a la isla {result['isla']}.", **result,
+            "operation_id": tracing.current_operation_id()}
+
+
+@app.get("/api/vlans")
+def list_vlans(state: StateDep, isla: str = Query(default="", max_length=60)) -> dict[str, Any]:
+    return {"vlans": _serialize(state.repo.list_vlans(tracing.clean_text(isla, 60)))}
+
+
+@app.put("/api/vlans")
+def upsert_vlan(req: VlanRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
+    tracing.audit("vlan.upsert", isla=req.isla, vlan=req.vlan)
+    doc = state.repo.upsert_vlan(
+        tracing.clean_text(req.isla, 60), req.vlan.strip(),
+        {k: tracing.clean_text(getattr(req, k), 120) for k in ("rd", "vrf_name", "vrf_desc", "vlan_desc")},
+        operator, tracing.current_operation_id(),
+    )
+    return {"message": f"Datos de la VLAN {doc['vlan']} guardados.", "vlan": _serialize(doc),
+            "operation_id": tracing.current_operation_id()}
 
 
 @app.post("/api/centrales/sync")

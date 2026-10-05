@@ -98,43 +98,21 @@ def test_format_generation():
     assert "SERVICIO-DEMO-001" in text
     assert "10.78.89.32/27 RED" in text
     assert "10.78.89.35    WAN" in text
-    assert "ip vpn-instance INTERNET_GT_METRO" in text
-    assert "PRE-SHARED KEY: PSK-DEMO-NO-VALIDA" in text
+    assert "LOOPBACK 10.212.239.51/32" in text
+    assert "ISLA CARMEN" in text
+    assert "VLAN 3740 NOMBRE DE VRF: INTERNET_GT_METRO" in text
+    assert "RD 6458:11270" in text
+    assert "LOOPBACK 5 :  10.212.239.51" in text
+    assert "PSK-DEMO-NO-VALIDA" not in text
     print("[OK] Todas las validaciones de generacion de formato pasaron exitosamente.")
 
 
-def test_form_fields_override_pasted_factibility_block():
-    text = generate_format_text(
-        {
-            "titulo": "INTERNET CORPORATIVO",
-            "medio": "RADIO",
-            "velocidad": "500 MBPS",
-            "direccion": "DIRECCION ACTUAL",
-            "coordenadas": "14.0, -90.0",
-            "factibilidad_bloque": (
-                "TITULO:\t***INTERNET CORPORATIVO***\n"
-                "MEDIO:\tFIBRA\n"
-                "VELOCIDAD:\t100 MBPS\n"
-                "DIRECCION:\tDIRECCION ANTERIOR"
-            ),
-        }
-    )
+def test_pasted_factibility_block_is_printed_as_is():
+    bloque = "TITULO:\t***INTERNET CORPORATIVO***\nMEDIO:\tFIBRA\nDIRECCION:\tZONA 1\\1"
+    text = generate_format_text({"titulo": "INTERNET", "medio": "RADIO", "factibilidad_bloque": bloque})
+    assert f"Factibilidad:\n{bloque}\n" in text
+    assert "==> RADIO ==>" not in text  # sin equipos Claro no hay tramo de medio
 
-    assert "MEDIO:\tRADIO" in text
-    assert "VELOCIDAD:\t500 MBPS" in text
-    assert "DIRECCION:\tDIRECCION ACTUAL, // COORDENADAS: 14.0, -90.0" in text
-    assert "DIRECCION ANTERIOR" not in text
-
-
-def test_factibility_values_treat_backslashes_as_text():
-    text = generate_format_text(
-        {
-            "medio": r"RADIO\1",
-            "factibilidad_bloque": "MEDIO:\tFIBRA",
-        }
-    )
-
-    assert "MEDIO:\t" + r"RADIO\1" in text
 
 if __name__ == "__main__":
     print("Ejecutando pruebas de verificacion...")
