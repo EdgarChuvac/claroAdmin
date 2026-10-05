@@ -1,6 +1,8 @@
 import os
+
 import openpyxl
-from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
 
 def create_sample_excel(filepath: str):
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -8,12 +10,12 @@ def create_sample_excel(filepath: str):
     # Sheet 1: 10.20.38.0
     ws1 = wb.active
     ws1.title = "10.20.38.0"
-    
+
     # Styling colors matching Claro Excel screenshot
     green_fill = PatternFill(start_color="92D050", end_color="92D050", fill_type="solid")  # Green for VLAN/Service
     peach_fill = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")  # Peach for GW & client IDs
     grey_fill = PatternFill(start_color="A6A6A6", end_color="A6A6A6", fill_type="solid")   # Grey for Broadcast
-    
+
     thin_border = Border(
         left=Side(style='thin', color='BFBFBF'),
         right=Side(style='thin', color='BFBFBF'),
@@ -22,7 +24,7 @@ def create_sample_excel(filepath: str):
     )
     bold_font = Font(name="Calibri", size=10, bold=True)
     normal_font = Font(name="Calibri", size=10)
-    
+
     # We will populate blocks according to the user's screenshot:
     # Col pair 1 (A & B): 0 to 31 (/27)
     # Col pair 2 (C & D): 32 to 63 (/27)
@@ -32,7 +34,7 @@ def create_sample_excel(filepath: str):
     # Col pair 6 (K & L): 160 to 191 (/27)
     # Col pair 7 (M & N): 192 to 207 (/28) AND 208 to 223 (/28)
     # Col pair 8 (O & P): 224 to 239 (/28) AND 240 to 255 (/28)
-    
+
     blocks = [
         # (col_num, start_octet, end_octet, vlan_name, row_offset, clients_dict)
         (1, 0, 31, "INTERNET 3740", 1, {
@@ -53,22 +55,22 @@ def create_sample_excel(filepath: str):
         (15, 224, 239, "INTERNET 3740", 1, {}),
         (15, 240, 255, "INTERNET 3740", 17, {})
     ]
-    
+
     for (col, start_o, end_o, vlan_name, start_row, clients) in blocks:
         for idx, octet in enumerate(range(start_o, end_o + 1)):
             r = start_row + idx
             c_num = ws1.cell(row=r, column=col)
             c_lbl = ws1.cell(row=r, column=col + 1)
-            
+
             c_num.value = octet
             c_num.font = normal_font
             c_num.alignment = Alignment(horizontal="right", vertical="center")
             c_num.border = thin_border
-            
+
             c_lbl.font = normal_font
             c_lbl.border = thin_border
             c_lbl.alignment = Alignment(horizontal="left", vertical="center")
-            
+
             if octet == start_o:
                 c_lbl.value = vlan_name
                 c_lbl.fill = green_fill
@@ -86,7 +88,7 @@ def create_sample_excel(filepath: str):
                 c_lbl.fill = peach_fill
             else:
                 c_lbl.value = None  # Free / available
-                
+
     # Also add sheet 2: 10.20.37.0
     ws2 = wb.create_sheet(title="10.20.37.0")
     # Quick /27 block for 10.20.37.0

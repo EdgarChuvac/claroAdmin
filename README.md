@@ -2,7 +2,7 @@
 
 Aplicación web para administrar el inventario de direcciones IP de Claro CENAM en **Cloud Firestore (Firebase)**, reservar y liberar IPs por servicio y generar el formato técnico de alta (INTERNET y DATOS corporativo), con **trazabilidad completa**: cada operación tiene un ID único que aparece en pantalla, en los logs y en la bitácora de Firestore.
 
-> Este README es la **guía técnica de despliegue**. Para el uso diario consulte el [Manual de usuario](docs/MANUAL_USUARIO.md) y para mantener el código el [Manual de desarrollador](docs/MANUAL_DESARROLLADOR.md).
+> Este README es la **guía técnica de despliegue**. Si es un agente de IA, empiece por [AGENTS.md](AGENTS.md). Para el uso diario consulte el [Manual de usuario](docs/MANUAL_USUARIO.md) y para mantener el código el [Manual de desarrollador](docs/MANUAL_DESARROLLADOR.md).
 
 ---
 
@@ -28,7 +28,7 @@ Aplicación web para administrar el inventario de direcciones IP de Claro CENAM 
 
 ```mermaid
 flowchart LR
-    U["Navegador del ingeniero"] -- "HTTP + X-Operator" --> API["FastAPI<br/>backend/app.py"]
+    U["Navegador del ingeniero"] -- "HTTP + X-Operator" --> API["FastAPI<br/>backend/main.py"]
     API -- Admin SDK --> FS[(Cloud Firestore)]
     API -- JSON logs --> L["stdout / logs/app.log<br/>Cloud Logging"]
     X["Excel .xlsx"] -- importar --> API
@@ -103,10 +103,10 @@ firebase login
 firebase deploy --only firestore:rules,firestore:indexes --project MI_PROYECTO
 ```
 
-* `firestore.rules` niega todo acceso desde clientes (navegador/apps).
-* `firestore.indexes.json` crea los índices compuestos que usan las consultas de historial (`altas` y `operations`) y activa la política **TTL** sobre `operations.expires_at` (los registros se borran solos tras `OPERATIONS_RETENTION_DAYS`).
+* `firebase/firestore.rules` niega todo acceso desde clientes (navegador/apps).
+* `firebase/firestore.indexes.json` crea los índices compuestos que usan las consultas de historial (`altas` y `operations`) y activa la política **TTL** sobre `operations.expires_at` (los registros se borran solos tras `OPERATIONS_RETENTION_DAYS`).
 
-**Para separar ambientes (QA / producción) use bases de datos o proyectos distintos** (`FIRESTORE_DATABASE_ID`), no prefijos: los índices y la política TTL se definen por nombre de colección. Si aun así usa `FIRESTORE_COLLECTION_PREFIX` (por ejemplo `qa_`), duplique en `firestore.indexes.json` las entradas de índices y TTL cambiando `collectionGroup` a `qa_altas` y `qa_operations`; de lo contrario el historial por servicio u operador devolverá error y la bitácora no expirará. Si falta un índice, Firestore devuelve un error con un enlace para crearlo en un clic; ese error queda registrado con su ID de operación.
+**Para separar ambientes (QA / producción) use bases de datos o proyectos distintos** (`FIRESTORE_DATABASE_ID`), no prefijos: los índices y la política TTL se definen por nombre de colección. Si aun así usa `FIRESTORE_COLLECTION_PREFIX` (por ejemplo `qa_`), duplique en `firebase/firestore.indexes.json` las entradas de índices y TTL cambiando `collectionGroup` a `qa_altas` y `qa_operations`; de lo contrario el historial por servicio u operador devolverá error y la bitácora no expirará. Si falta un índice, Firestore devuelve un error con un enlace para crearlo en un clic; ese error queda registrado con su ID de operación.
 
 TTL por línea de comandos (equivalente):
 
@@ -190,7 +190,7 @@ After=network-online.target
 User=claroadmin
 WorkingDirectory=/opt/claro-admin
 EnvironmentFile=/etc/claro-admin.env
-ExecStart=/opt/claro-admin/.venv/bin/uvicorn backend.app:app --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers
+ExecStart=/opt/claro-admin/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --workers 2 --proxy-headers
 Restart=on-failure
 
 [Install]
@@ -388,7 +388,7 @@ A partir de ese momento Firestore es la única fuente de verdad; no edite el Exc
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-DATA_BACKEND=memory python -m uvicorn backend.app:app --reload   # demo sin credenciales
+DATA_BACKEND=memory python -m uvicorn backend.main:app --reload   # demo sin credenciales
 python -m pytest                                                   # 52 pruebas
 ruff check backend scripts tests
 ```
@@ -397,7 +397,7 @@ Integración real contra el emulador de Firestore (también corre en GitHub Acti
 
 ```bash
 firebase emulators:exec --only firestore --project demo-claro-admin \
-  "FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 python -m pytest tests/test_firestore_emulator.py"
+  "FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 python -m pytest tests/integration"
 ```
 
 Detalles en el [Manual de desarrollador](docs/MANUAL_DESARROLLADOR.md).

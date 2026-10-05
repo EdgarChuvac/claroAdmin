@@ -3,9 +3,8 @@
 Se ejecuta solo si ``FIRESTORE_EMULATOR_HOST`` está definido, por ejemplo::
 
     firebase emulators:start --only firestore --project demo-claro-admin
-    FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 python -m pytest tests/test_firestore_emulator.py
+    FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 python -m pytest tests/integration
 
-En GitHub Actions corre automáticamente (ver ``.github/workflows/ci.yml``).
 Valida que ``InventoryRepository`` funcione con el SDK real (consultas,
 lotes y transacciones), no solo con el cliente en memoria.
 """
@@ -24,10 +23,10 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def emulator_repo():
-    from backend.app import parse_inventory_excel
-    from backend.firebase_client import create_firestore_handle
-    from backend.repository import InventoryRepository
-    from backend.settings import Settings
+    from backend.core.settings import Settings
+    from backend.db.firebase_client import create_firestore_handle
+    from backend.repositories.inventory import InventoryRepository
+    from backend.services.excel_import import parse_inventory_excel
 
     settings = Settings(
         data_backend="firestore",
@@ -54,7 +53,7 @@ def test_full_flow_with_real_sdk(emulator_repo):
     assert sheet["assigned_count"] == 6
 
     # merge con el SDK real: escrituras protegidas + recálculo transaccional de contadores
-    from backend.app import parse_inventory_excel
+    from backend.services.excel_import import parse_inventory_excel
 
     blocks, ignored = parse_inventory_excel(SAMPLE_XLSX.read_bytes())
     result = repo.import_inventory(blocks, mode="merge", filename="s.xlsx", operator="ci",
@@ -76,7 +75,7 @@ def test_full_flow_with_real_sdk(emulator_repo):
 
 
 def test_transactions_prevent_double_booking(emulator_repo):
-    from backend.repository import ConflictError
+    from backend.core.errors import ConflictError
 
     def attempt(n):
         try:

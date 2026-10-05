@@ -6,6 +6,8 @@ requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
+markers = ["integration: requiere el emulador de Firestore (FIRESTORE_EMULATOR_HOST)"]
 filterwarnings = ["ignore::DeprecationWarning:starlette.*"]
 
 [tool.ruff]

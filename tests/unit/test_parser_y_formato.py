@@ -1,16 +1,15 @@
+"""Parser del Excel de ejemplo y generador del formato de alta."""
+
 import os
-import sys
 
-# Agregar ruta al path
-base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, base_dir)
+from conftest import SAMPLE_XLSX
 
-from backend.excel_parser import ExcelIPAMReader
-from backend.format_generator import generate_format_text
+from backend.services.excel_parser import ExcelIPAMReader
+from backend.services.format_generator import generate_format_text
 
 
 def test_excel_parsing():
-    excel_path = os.path.join(base_dir, "data", "ejemplo_inventario_ips.xlsx")
+    excel_path = str(SAMPLE_XLSX)
     assert os.path.exists(excel_path), f"Excel no encontrado: {excel_path}"
 
     reader = ExcelIPAMReader(excel_path)

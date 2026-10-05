@@ -36,8 +36,9 @@ from datetime import datetime, timedelta, timezone
 from ipaddress import IPv4Address
 from typing import Any, Iterable
 
-from .excel_parser import IPBlock
-from .firebase_client import FirestoreHandle
+from ..core.errors import ConflictError, InventoryError, NotFoundError
+from ..db.firebase_client import FirestoreHandle
+from ..services.excel_parser import IPBlock
 
 logger = logging.getLogger(__name__)
 
@@ -47,26 +48,6 @@ STATUS_GATEWAY = "GATEWAY"
 
 MAX_IPS_PER_RESERVATION = 64
 BATCH_LIMIT = 450  # margen bajo el límite de 500 operaciones por lote
-
-
-class InventoryError(Exception):
-    status_code = 400
-    code = "invalid_request"
-
-    def __init__(self, message: str, **extra: Any):
-        super().__init__(message)
-        self.message = message
-        self.extra = extra
-
-
-class NotFoundError(InventoryError):
-    status_code = 404
-    code = "not_found"
-
-
-class ConflictError(InventoryError):
-    status_code = 409
-    code = "conflict"
 
 
 def utcnow() -> datetime:

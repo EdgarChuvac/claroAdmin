@@ -8,7 +8,7 @@ import argparse
 import json
 from pathlib import Path
 
-from backend.app import parse_inventory_excel
+from backend.services.excel_import import parse_inventory_excel
 
 from ._bootstrap import bootstrap
 

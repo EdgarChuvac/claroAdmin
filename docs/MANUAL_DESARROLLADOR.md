@@ -51,7 +51,7 @@ Principios de diseño:
 
 * **Firestore es la única fuente de verdad.** El Excel es solo formato de entrada/salida.
 * **Las reservas son transacciones** (`reserve`, `release`): sin bloqueos en memoria, así se puede escalar a varios workers o instancias.
-* **Un solo repositorio de datos** (`InventoryRepository`) habla la API de `google-cloud-firestore`. En pruebas se le inyecta un cliente en memoria con la misma interfaz (`firestore_fake.py`); la compatibilidad con el SDK real se prueba contra el emulador en CI.
+* **Un solo repositorio de datos** (`InventoryRepository`) habla la API de `google-cloud-firestore`. En pruebas se le inyecta un cliente en memoria con la misma interfaz (`backend/db/firestore_fake.py`); la compatibilidad con el SDK real se prueba contra el emulador (`tests/integration`).
 * **Toda petición tiene un `operation_id`**, que viaja en logs, respuestas, documentos y la interfaz.
 
 ---
@@ -59,28 +59,31 @@ Principios de diseño:
 ## 2. Estructura del repositorio
 
 ```
-backend/
-  app.py              Endpoints, modelos Pydantic, middleware y manejadores de error
-  settings.py         Configuración desde variables de entorno (pydantic-settings)
-  tracing.py          ID de operación, contexto por petición, logs JSON, audit()
-  firebase_client.py  Crea el cliente Firestore (credenciales / emulador / memoria)
-  firestore_fake.py   Cliente Firestore en memoria (pruebas y demo)
-  repository.py       Acceso a datos: inventario, reservas, altas, operaciones, centrales
-  excel_parser.py     Lectura del Excel histórico (pares octeto|etiqueta)
-  excel_export.py     Exportación del inventario a Excel (mismo formato)
-  catalog.py          Plantillas por tipo de servicio y catálogo de centrales
-  format_generator.py Texto del alta
-config/
-  service_templates.json  Plantillas INTERNET / DATOS, medios de transmisión, pool de loopbacks y valores de red
-  centrales.json          Catálogo de centrales (demo) — se sincroniza a Firestore
-frontend/             index.html, app.js, style.css (sin build, JS nativo)
-scripts/              import_excel.py, seed_centrales.py (CLI)
-tests/                pytest: API, unidades, parser/generador, emulador
-data/                 Excel de ejemplo y su generador
-docs/                 Manuales e imágenes
-firestore.rules, firestore.indexes.json, firebase.json
-Dockerfile, .env.example, requirements*.txt, pyproject.toml, .github/workflows/ci.yml
+backend/                    Paquete Python (FastAPI). Entrada: backend.main:app
+  __init__.py               __version__
+  main.py                   create_app(): lifespan, middleware, errores, routers y frontend estático
+  api/                      Capa HTTP (sin lógica de negocio)
+    dependencies.py         AppState, build_state(), StateDep/OperatorDep, helpers de validación
+    middleware.py           ID de operación por petición y auditoría en `operations`
+    errors.py               Errores -> JSON con operation_id
+    routes/                 Un router por dominio: system, inventory, network, reservations, altas, operations
+  schemas/requests.py       Modelos Pydantic de entrada
+  core/                     settings.py (variables de entorno), tracing.py (logs/IDs), errors.py (errores de dominio)
+  db/                       firebase_client.py (cliente real/emulador/memoria), firestore_fake.py
+  repositories/inventory.py Acceso a Firestore: inventario, reservas, altas, VLANs, loopbacks, operaciones, centrales
+  services/                 Lógica sin HTTP: catalog, format_generator, excel_parser, excel_import, excel_export
+config/                     service_templates.json (plantillas, medios, pool de loopbacks), centrales.json
+frontend/                   index.html, app.js, style.css (sin build, JS nativo)
+firebase/                   firestore.rules, firestore.indexes.json (firebase.json en la raíz apunta aquí)
+scripts/                    CLI: import_excel, seed_centrales, create_sample_excel
+tests/                      unit/ (sin HTTP), api/ (TestClient en memoria), integration/ (emulador)
+data/                       Excel de ejemplo
+docs/                       Manuales e imágenes
+AGENTS.md                   Contexto para agentes de IA (CLAUDE.md lo importa)
+Dockerfile, .env.example, requirements*.txt, pyproject.toml, iniciar_programa.sh/.bat
 ```
+
+**Dónde va cada cambio:** un endpoint nuevo va en el router de su dominio (o en un módulo nuevo de `api/routes/` registrado en `routes/__init__.py`); la lógica, en `services/`; el acceso a Firestore, en `repositories/`; los modelos de entrada, en `schemas/`.
 
 ---
 
@@ -95,7 +98,7 @@ cp .env.example .env                                    # ajustar
 **Modo memoria (sin credenciales).** Carga automáticamente `data/ejemplo_inventario_ips.xlsx`:
 
 ```bash
-DATA_BACKEND=memory LOG_FORMAT=text python -m uvicorn backend.app:app --reload
+DATA_BACKEND=memory LOG_FORMAT=text python -m uvicorn backend.main:app --reload
 ```
 
 **Emulador de Firestore** (requiere Java 11+ y `npm i -g firebase-tools`):
@@ -104,7 +107,7 @@ DATA_BACKEND=memory LOG_FORMAT=text python -m uvicorn backend.app:app --reload
 firebase emulators:start --only firestore --project demo-claro-admin
 # en otra terminal
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 FIREBASE_PROJECT_ID=demo-claro-admin \
-  python -m uvicorn backend.app:app --reload
+  python -m uvicorn backend.main:app --reload
 python -m scripts.import_excel data/ejemplo_inventario_ips.xlsx --operator "Dev"
 ```
 
@@ -114,7 +117,7 @@ python -m scripts.import_excel data/ejemplo_inventario_ips.xlsx --operator "Dev"
 
 ## 4. Configuración
 
-`backend/settings.py` define la clase `Settings` (pydantic-settings). Cada atributo corresponde a una variable de entorno en mayúsculas (`data_backend` → `DATA_BACKEND`). También lee `.env`. `get_settings()` está cacheado; en pruebas se llama `get_settings.cache_clear()`.
+`backend/core/settings.py` define la clase `Settings` (pydantic-settings). Cada atributo corresponde a una variable de entorno en mayúsculas (`data_backend` → `DATA_BACKEND`). También lee `.env`. `get_settings()` está cacheado; en pruebas se llama `get_settings.cache_clear()`.
 
 Resolución de credenciales en `firebase_client.create_firestore_handle`:
 
@@ -207,7 +210,7 @@ Campo `isla` (mayúsculas). Se fija al importar (`isla` en el formulario; vacío
 
 ### Índices
 
-Definidos en `firestore.indexes.json`: `altas (service_id ASC, created_at DESC)`, `operations (operator ASC, created_at DESC)`, `operations (service_id ASC, created_at DESC)`; TTL en `operations.expires_at`; exclusión de índices para `altas.formatted_text` y `altas.form_data` (campos grandes).
+Definidos en `firebase/firestore.indexes.json`: `altas (service_id ASC, created_at DESC)`, `operations (operator ASC, created_at DESC)`, `operations (service_id ASC, created_at DESC)`; TTL en `operations.expires_at`; exclusión de índices para `altas.formatted_text` y `altas.form_data` (campos grandes).
 
 ---
 
@@ -401,15 +404,15 @@ ruff check backend scripts tests
 
 | Archivo | Cubre |
 |---|---|
-| `tests/test_api.py` | Endpoints: reservas atómicas y concurrentes, liberación, importación merge/replace/conflictos, exportación ida y vuelta, altas idempotentes, auditoría, logs con ID |
-| `tests/test_units.py` | Plantillas por servicio, campos de medio, parser (gateway, etiquetas), settings y credenciales, prefijo de colecciones, formato JSON de log, unicidad de IDs |
-| `tests/test_verification.py` | Parser y generador con el Excel de ejemplo |
-| `tests/test_regresiones.py` | Hallazgos de la revisión de código: nombres de hoja, parámetros inválidos, error 500 con ID, gateway vs. IP asignada, exportación sin fórmulas, re-subdivisión, escrituras protegidas, PSK, altas concurrentes |
-| `tests/test_firestore_emulator.py` | Repositorio con el **SDK real** contra el emulador (consultas, lotes, transacciones, doble reserva) |
+| `tests/api/test_api.py` | Endpoints: reservas atómicas y concurrentes, liberación, importación merge/replace/conflictos, exportación ida y vuelta, altas idempotentes, auditoría, logs con ID |
+| `tests/unit/test_units.py` | Plantillas por servicio, campos de medio, parser (gateway, etiquetas), settings y credenciales, prefijo de colecciones, formato JSON de log, unicidad de IDs |
+| `tests/unit/test_parser_y_formato.py` | Parser y generador con el Excel de ejemplo |
+| `tests/api/test_regresiones.py` | Hallazgos de la revisión de código: nombres de hoja, parámetros inválidos, error 500 con ID, gateway vs. IP asignada, exportación sin fórmulas, re-subdivisión, escrituras protegidas, PSK, altas concurrentes |
+| `tests/integration/test_firestore_emulator.py` | Repositorio con el **SDK real** contra el emulador (consultas, lotes, transacciones, doble reserva) |
 
 `conftest.py` fuerza `DATA_BACKEND=memory` y crea un `TestClient` limpio por prueba.
 
-GitHub Actions (`.github/workflows/ci.yml`): *lint + pruebas*, *pruebas contra el emulador de Firestore* (`firebase emulators:exec`) y *build de Docker con prueba de humo*.
+**CI:** el repositorio todavía no tiene un workflow de GitHub Actions. Hasta que se agregue, ejecute localmente `ruff check backend scripts tests` y `python -m pytest` antes de cada push (y `tests/integration` con el emulador cuando toque el repositorio).
 
 ---
 
@@ -428,12 +431,12 @@ def hacer_algo(req: AlgoRequest, state: StateDep, operator: OperatorDep) -> dict
 
 * Use `OperatorDep` en toda escritura.
 * Lance `InventoryError`, `NotFoundError` o `ConflictError` desde el repositorio: el manejador global responde con el código HTTP correcto y el `operation_id`.
-* Si agrega consultas con `where` + `order_by` sobre campos distintos, agregue el índice a `firestore.indexes.json`.
-* Si usa una operación nueva del SDK, impleméntela también en `firestore_fake.py` y cúbrala en `test_firestore_emulator.py`.
+* Si agrega consultas con `where` + `order_by` sobre campos distintos, agregue el índice a `firebase/firestore.indexes.json`.
+* Si usa una operación nueva del SDK, impleméntela también en `backend/db/firestore_fake.py` y cúbrala en `tests/integration/test_firestore_emulator.py`.
 
-**Agregar un tipo de servicio:** agregue una entrada en `config/service_templates.json` (aparece sola en el selector) y una prueba en `tests/test_units.py`.
+**Agregar un tipo de servicio:** agregue una entrada en `config/service_templates.json` (aparece sola en el selector) y una prueba en `tests/unit/test_units.py`.
 
-**Cambiar el formato del alta:** edite `format_generator.py` y actualice las aserciones de `tests/test_verification.py` / `test_units.py`.
+**Cambiar el formato del alta:** edite `backend/services/format_generator.py` y actualice las aserciones de `tests/unit/test_parser_y_formato.py` / `tests/unit/test_units.py`.
 
 ---
 

@@ -12,7 +12,7 @@ from typing import Any
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from .repository import STATUS_GATEWAY, STATUS_USED
+from ..repositories.inventory import STATUS_GATEWAY, STATUS_USED
 
 GREEN = PatternFill(start_color="92D050", end_color="92D050", fill_type="solid")
 PEACH = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")

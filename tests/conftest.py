@@ -23,8 +23,8 @@ OPERATOR = {"X-Operator": "Operador%20Prueba"}
 def client(monkeypatch):
     from fastapi.testclient import TestClient
 
-    from backend import app as app_module
-    from backend.settings import get_settings
+    from backend import main as app_module
+    from backend.core.settings import get_settings
 
     monkeypatch.setenv("DATA_BACKEND", "memory")
     get_settings.cache_clear()

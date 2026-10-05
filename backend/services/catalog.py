@@ -137,4 +137,4 @@ def load_catalog(config_dir: str | Path) -> Catalog:
 
 @lru_cache
 def default_catalog() -> Catalog:
-    return load_catalog(Path(__file__).resolve().parent.parent / "config")
+    return load_catalog(Path(__file__).resolve().parents[2] / "config")

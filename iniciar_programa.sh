@@ -17,4 +17,4 @@ fi
 
 PORT=${APP_PORT:-8000}
 echo "Servidor en http://127.0.0.1:${PORT}"
-exec .venv/bin/python -m uvicorn backend.app:app --host "${APP_HOST:-127.0.0.1}" --port "$PORT"
+exec .venv/bin/python -m uvicorn backend.main:app --host "${APP_HOST:-127.0.0.1}" --port "$PORT"

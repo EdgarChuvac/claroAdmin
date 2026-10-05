@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from .settings import Settings
+from ..core.settings import Settings
 
 logger = logging.getLogger(__name__)
 

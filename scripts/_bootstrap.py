@@ -1,8 +1,8 @@
 """Inicializa configuración, logs y repositorio para scripts de línea de comandos."""
 
-from backend import tracing
-from backend.app import build_state
-from backend.settings import get_settings
+from backend.api.dependencies import build_state
+from backend.core import tracing
+from backend.core.settings import get_settings
 
 
 def bootstrap(operator: str):

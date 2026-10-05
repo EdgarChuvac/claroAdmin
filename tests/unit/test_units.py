@@ -8,11 +8,11 @@ import re
 import openpyxl
 import pytest
 
-from backend.catalog import default_catalog
-from backend.excel_parser import ExcelIPAMReader
-from backend.format_generator import generate_format_text
-from backend.settings import Settings
-from backend.tracing import OPERATION_ID_RE, clean_text, new_operation_id
+from backend.core.settings import Settings
+from backend.core.tracing import OPERATION_ID_RE, clean_text, new_operation_id
+from backend.services.catalog import default_catalog
+from backend.services.excel_parser import ExcelIPAMReader
+from backend.services.format_generator import generate_format_text
 
 
 def test_operation_ids_are_unique_and_well_formed():
@@ -156,8 +156,8 @@ def test_settings_read_from_environment(monkeypatch):
 
 
 def test_collection_prefix_is_applied():
-    from backend.firebase_client import create_memory_handle
-    from backend.repository import InventoryRepository
+    from backend.db.firebase_client import create_memory_handle
+    from backend.repositories.inventory import InventoryRepository
 
     handle = create_memory_handle()
     repo = InventoryRepository(handle, "qa_")
@@ -168,7 +168,7 @@ def test_collection_prefix_is_applied():
 def test_json_log_format_contains_operation_id():
     import logging
 
-    from backend import tracing
+    from backend.core import tracing
 
     record = logging.makeLogRecord({"msg": "hola %s", "args": ("mundo",), "levelname": "INFO", "name": "x"})
     ctx = tracing.OperationContext(operation_id="OP-20260101-ABCDEFABCDEF", operator="Ana")

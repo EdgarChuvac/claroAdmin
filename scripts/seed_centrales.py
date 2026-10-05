@@ -5,7 +5,7 @@ Uso:  python -m scripts.seed_centrales --operator "Nombre Apellido"
 
 import argparse
 
-from backend.catalog import load_catalog
+from backend.services.catalog import load_catalog
 
 from ._bootstrap import bootstrap
 

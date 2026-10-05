@@ -25,4 +25,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD \
   python -c "import os,urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ.get(\"PORT\", os.environ[\"APP_PORT\"])}/api/health', timeout=4)"
 
 # Cloud Run inyecta PORT; en otros entornos se usa APP_PORT.
-CMD ["sh", "-c", "exec uvicorn backend.app:app --host ${APP_HOST} --port ${PORT:-${APP_PORT}} --proxy-headers --forwarded-allow-ips='*'"]
+CMD ["sh", "-c", "exec uvicorn backend.main:app --host ${APP_HOST} --port ${PORT:-${APP_PORT}} --proxy-headers --forwarded-allow-ips='*'"]
