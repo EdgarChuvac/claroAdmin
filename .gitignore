@@ -14,3 +14,4 @@ data/inventario_activo.xlsx
 # Firebase Credentials
 firebase/serviceAccountKey.json
 serviceAccountKey.json
+config.json

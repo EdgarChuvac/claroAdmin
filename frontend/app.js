@@ -5,6 +5,9 @@
 // ===========================================================================
 const state = {
   config: null,
+  islasRequestId: 0,
+  chasisRequestId: 0,
+  chasis: [],
   operator: "",
   clientSession: "",
   sheets: [],
@@ -60,7 +63,7 @@ function formatDate(iso) {
  });
 }
 
-window.toggleChasis = function () {
+window.toggleChasis = async function () {
     const medio = document.getElementById("s-medio");
     const chasis = document.getElementById("grp-chasis");
 
@@ -68,7 +71,36 @@ window.toggleChasis = function () {
 
     chasis.style.display =
         medio.value === "RADIO" ? "none" : "block";
+    markFormatStale();
+    await loadChasisForIsla();
 };
+
+async function loadChasisForIsla() {
+  const requestId = ++state.chasisRequestId;
+  const select = $("s-chasis");
+  const previous = select.value;
+  state.chasis = [];
+  select.replaceChildren(new Option("SIN CHASIS", ""));
+  select.disabled = false;
+  const region = $("s-region").value;
+  const isla = selectedIsla();
+  if ($("s-medio").value !== "FIBRA" || !region || !isla) return;
+  select.disabled = true;
+  try {
+    const params = new URLSearchParams({ region, isla });
+    const result = await api(`/api/chasis?${params}`);
+    if (requestId !== state.chasisRequestId) return;
+    state.chasis = result.chasis;
+    select.replaceChildren(new Option("SIN CHASIS", ""),
+      ...state.chasis.map(ch => new Option(ch.nombre || ch.id, ch.id)));
+    if (state.chasis.some(ch => ch.id === previous)) select.value = previous;
+  } catch (err) {
+    if (requestId !== state.chasisRequestId) return;
+    showError(err, "No se pudieron cargar los chasis de la isla");
+  } finally {
+    if (requestId === state.chasisRequestId) select.disabled = false;
+  }
+}
 // ===========================================================================
 // API con trazabilidad
 // ===========================================================================
@@ -324,6 +356,15 @@ function ensureOperator() {
 // ===========================================================================
 // Configuración: plantillas de servicio y catálogo de centrales
 // ===========================================================================
+async function onRegionChange() {
+  markFormatStale();
+  try {
+    await loadIslas("");
+  } catch (err) {
+    showError(err, "No se pudieron cargar las islas de la región seleccionada");
+  }
+}
+
 async function loadConfig() {
   try {
     state.config = await api("/api/config");
@@ -332,24 +373,6 @@ async function loadConfig() {
     return;
   }
   const cfg = state.config;
-
-  console.log("CHASIS RECIBIDOS:", cfg.chasis);
-
-  const chasisSelect = $("s-chasis");
-
-  chasisSelect.innerHTML = "";
-
-  chasisSelect.add(
-    new Option("SIN CHASIS", "")
-  );
-
-(cfg.chasis || []).forEach(ch => {
-    console.log("AGREGANDO:", ch);
-
-    chasisSelect.add(
-        new Option(ch.nombre, ch.id)
-    );
-});
 
   $("footer-version").textContent = `Claro CENAM Service Manager v${cfg.version} · datos: ${cfg.backend === "memory" ? "memoria (demo)" : "Firebase"}`;
   $("import-max-mb").textContent = cfg.max_upload_mb;
@@ -467,10 +490,24 @@ async function loadInventory() {
 }
 
 async function loadIslas(preferred) {
-  const data = await api("/api/islas");
+  const requestId = ++state.islasRequestId;
+  const region = $("s-region").value;
   const select = $("eq-isla");
   const before = select.value;
   const current = preferred !== undefined ? preferred : before;
+  select.replaceChildren(new Option(region ? "Cargando islas..." : "Seleccione primero la región", ""));
+  $("islas-datalist").replaceChildren();
+  await onIslaChange();
+  if (!region) return;
+  let data;
+  try {
+    data = await api(`/api/islas?region=${encodeURIComponent(region)}`);
+  } catch (err) {
+    if (requestId !== state.islasRequestId) return;
+    select.replaceChildren(new Option("No se pudieron cargar las islas", ""));
+    throw err;
+  }
+  if (requestId !== state.islasRequestId) return;
   const options = [new Option("Seleccione la isla / central", ""), ...data.islas.map(i => new Option(i, i))];
   if (data.has_unassigned) options.push(new Option("(Segmentos sin isla asignada)", NO_ISLA));
   select.replaceChildren(...options);
@@ -479,9 +516,23 @@ async function loadIslas(preferred) {
   await onIslaChange({ keepSelection: select.value === before });
 }
 
-async function onIslaChange({ keepSelection = false } = {}) {
+const loadIslasFromDB = async ()=> {
+  try {
+}catch(err){
+  console.log("Error al cargar islas desde la base de datos:", err);
+}
+}
+
+
+async function onIslaChange({ keepSelection = false, resetMedio = false } = {}) {
   const requestId = ++state.inventoryRequestId;
   const isla = $("eq-isla").value;
+  if (resetMedio) {
+    $("s-medio").value = "";
+    toggleChasis();
+  } else {
+    loadChasisForIsla();
+  }
   const previousVlan = keepSelection ? state.currentVlan : "";
   state.islaSegments = [];
   state.vlanCatalog = [];

@@ -25,11 +25,25 @@ router = APIRouter()
 
 
 @router.get("/api/islas")
-def list_islas(state: StateDep) -> dict[str, Any]:
+def list_islas(
+    state: StateDep,
+    region: str | None = Query(default=None, pattern=r"^(METROPOLITANA|DEPARTAMENTAL)$"),
+) -> dict[str, Any]:
+    if region is not None:
+        return {"region": region, "islas": state.repo.list_islas_region(region), "has_unassigned": False}
     islas = set(state.repo.list_islas())
     islas |= {c.isla.upper() for c in state.catalog.centrales if c.isla}
     unassigned = any(not s.get("isla") for s in state.repo.list_sheets())
     return {"islas": sorted(islas), "has_unassigned": unassigned}
+
+@router.get("/api/chasis")
+def list_chasis(
+    state: StateDep,
+    region: str = Query(pattern=r"^(METROPOLITANA|DEPARTAMENTAL)$"),
+    isla: str = Query(min_length=1, max_length=60, pattern=r"\S"),
+) -> dict[str, Any]:
+    return {"chasis": serialize(state.repo.list_chasis_isla(region, isla.strip()))}
+
 
 @router.get("/api/segments")
 def list_segments(state: StateDep, isla: str | None = Query(default=None, max_length=60)) -> dict[str, Any]:

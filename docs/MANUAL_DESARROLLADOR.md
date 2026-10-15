@@ -208,6 +208,20 @@ Resumen de `ImportResult` + `filename`, `operator`, `operation_id`, `created_at`
 
 Campo `isla` (mayúsculas). Se fija al importar (`isla` en el formulario; vacío conserva la anterior) o con `PUT /api/sheets/{red}/isla`. `GET /api/islas` y `GET /api/segments?isla=` alimentan los selectores de Equipamiento (`isla=` vacío = segmentos sin isla).
 
+Al cambiar `s-region`, la pantalla consulta `GET /api/islas?region=METROPOLITANA` o
+`region=DEPARTAMENTAL` y llena `eq-isla` con la respuesta. Esta consulta filtra la colección
+`ISLAS` (con el prefijo de colecciones configurado) por el campo `region`, usando el valor seleccionado.
+Devuelve los campos `NOMBRE` de los documentos coincidentes, ordenados y sin duplicados;
+omite los nombres vacíos o inválidos. Los nombres se usan como etiquetas y valores de las opciones. Sin región seleccionada,
+el selector pide elegir primero la región. La consulta sin parámetro conserva el catálogo general.
+
+Con medio `FIBRA`, el selector Chasis consulta `GET /api/chasis?region=...&isla=...`,
+tanto al cambiar el medio como la isla. El repositorio busca la isla en `ISLAS` por
+`region` y `NOMBRE`, y resuelve su campo `chasis_diponibles` (ID o lista de IDs) contra
+los documentos de `EQUIPO_CHASIS`. La respuesta incluye `id` y los campos del documento
+(`nombre`, `id_fisico`, `puerto`, `slot`, etc.). El selector muestra `nombre` y usa `id`
+como valor; los documentos completos quedan en `state.chasis` del frontend.
+
 ### Índices
 
 Definidos en `firebase/firestore.indexes.json`: `altas (service_id ASC, created_at DESC)`, `operations (operator ASC, created_at DESC)`, `operations (service_id ASC, created_at DESC)`; TTL en `operations.expires_at`; exclusión de índices para `altas.formatted_text` y `altas.form_data` (campos grandes).
