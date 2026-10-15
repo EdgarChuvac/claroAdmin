@@ -53,9 +53,7 @@ def get_config(state: StateDep) -> dict[str, Any]:
         **state.catalog.to_public_dict(),
         "centrales": serialize(centrales),
         "centrales_source": source,
-        "chasis": '',
-        "max_upload_mb": 
-    state.settings.max_upload_mb,
+        "max_upload_mb": state.settings.max_upload_mb,
         "backend": state.backend,
         "version": APP_VERSION,
     }

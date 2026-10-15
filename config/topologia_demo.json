@@ -1,0 +1,16 @@
+{
+  "_descripcion": "Topología de DEMOSTRACIÓN (datos ficticios). Se carga sola en modo memoria; en Firestore use: python -m scripts.seed_topologia --archivo config/topologia_demo.json --operator \"Nombre\". Los datos reales se migran con --desde-legado.",
+  "islas": [
+    {"nombre": "CARMEN", "region": "METROPOLITANA"},
+    {"nombre": "MONTE VERDE", "region": "METROPOLITANA"},
+    {"nombre": "ISLA DEMO DEPARTAMENTAL", "region": "DEPARTAMENTAL"}
+  ],
+  "chasis": [
+    {"id": "DEMO-CH-01", "isla": "MONTE VERDE", "nombre": "CHASIS DEMO 01", "id_fisico": "DEMO-0001",
+     "marca": "HUAWEI", "modelo": "OSN 1800", "slots": ["1", "3", "5"], "puertos": ["1", "2", "3", "4"]},
+    {"id": "DEMO-CH-02", "isla": "MONTE VERDE", "nombre": "CHASIS DEMO 02", "id_fisico": "DEMO-0002",
+     "slots": ["2", "4"], "puertos": ["1", "2"]},
+    {"id": "DEMO-CH-03", "isla": "CARMEN", "nombre": "CHASIS DEMO 03", "id_fisico": "DEMO-0003",
+     "slots": ["1"], "puertos": ["1", "2", "3", "4", "5", "6", "7", "8"]}
+  ]
+}

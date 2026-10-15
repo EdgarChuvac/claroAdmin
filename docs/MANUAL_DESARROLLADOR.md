@@ -169,7 +169,7 @@ erDiagram
 |---|---|
 | `ip`, `octet`, `sheet`, `segment_id` | Ubicación |
 | `status` | `DISPONIBLE` · `OCUPADA` · `GATEWAY` |
-| `service_id`, `purpose` | Servicio y uso (`WAN`, `LAN`, `ADICIONAL`) |
+| `service_id`, `cliente`, `purpose` | Servicio, cliente y uso (`WAN`, `LAN`, `ADICIONAL`). En el Excel la etiqueta es `ID_SERVICIO NOMBRE DEL CLIENTE`; liberar la IP borra el cliente |
 | `assigned_by`, `assigned_at`, `assigned_operation_id` | Trazabilidad de la reserva (`importación excel` si vino del archivo) |
 | `released_by`, `released_at`, `released_operation_id`, `released_service_id`, `release_reason` | Última liberación |
 | `import_id`, `updated_at` | |
@@ -182,7 +182,7 @@ Resumen de `ImportResult` + `filename`, `operator`, `operation_id`, `created_at`
 
 ### `altas/{ALTA-AAAAMMDD-XXXXXXXX}`
 
-`alta_id`, `service_id`, `cliente`, `tipo_servicio`, `ip_wan`, `red_wan`, `isla`, `vlan`, `loopback`, `operator`, `operation_id`, `formatted_text`, `form_data` (payload del formulario **sin `psk`**), `content_hash` (SHA-256 del texto), `created_at`.
+`alta_id`, `service_id`, `cliente`, `tipo_servicio`, `ip_wan`, `red_wan`, `region`, `isla`, `vlan`, `medio`, `chasis_id`, `loopback`, `operator`, `operation_id`, `formatted_text`, `form_data` (payload del formulario **sin `psk`**), `content_hash` (SHA-256 del texto), `estado` (`ACTIVA` o `BAJA`; las altas anteriores a 2.2 no lo tienen y cuentan como activas), `created_at`. Con la baja se agregan `baja_by`, `baja_at`, `baja_operation_id`, `baja_reason`.
 
 ### `alta_hashes/{sha256}`
 
@@ -202,25 +202,34 @@ Resumen de `ImportResult` + `filename`, `operator`, `operation_id`, `created_at`
 
 ### `loopbacks/{ip}`
 
-`ip`, `service_id`, `assigned_by`, `assigned_operation_id`, `assigned_at`. `POST /api/altas` con `loopback_auto: true` asigna en una transacción la primera IP libre del pool (o reutiliza la del servicio). `GET /api/loopbacks/next` y la vista previa solo la consultan.
+`ip`, `service_id`, `assigned_by`, `assigned_operation_id`, `assigned_at`. `POST /api/altas` con `loopback_auto: true` asigna la primera IP libre del pool (o reutiliza la del servicio) **en la misma transacción que crea el alta**. `GET /api/loopbacks/next` y la vista previa solo la consultan. La baja del servicio borra el documento.
 
 ### Isla en `inventory_sheets` e `ip_segments`
 
 Campo `isla` (mayúsculas). Se fija al importar (`isla` en el formulario; vacío conserva la anterior) o con `PUT /api/sheets/{red}/isla`. `GET /api/islas` y `GET /api/segments?isla=` alimentan los selectores de Equipamiento (`isla=` vacío = segmentos sin isla).
 
-Al cambiar `s-region`, la pantalla consulta `GET /api/islas?region=METROPOLITANA` o
-`region=DEPARTAMENTAL` y llena `eq-isla` con la respuesta. Esta consulta filtra la colección
-`ISLAS` (con el prefijo de colecciones configurado) por el campo `region`, usando el valor seleccionado.
-Devuelve los campos `NOMBRE` de los documentos coincidentes, ordenados y sin duplicados;
-omite los nombres vacíos o inválidos. Los nombres se usan como etiquetas y valores de las opciones. Sin región seleccionada,
-el selector pide elegir primero la región. La consulta sin parámetro conserva el catálogo general.
+### `islas/{slug}` — p. ej. `MONTE-VERDE`
 
-Con medio `FIBRA`, el selector Chasis consulta `GET /api/chasis?region=...&isla=...`,
-tanto al cambiar el medio como la isla. El repositorio busca la isla en `ISLAS` por
-`region` y `NOMBRE`, y resuelve su campo `chasis_diponibles` (ID o lista de IDs) contra
-los documentos de `EQUIPO_CHASIS`. La respuesta incluye `id` y los campos del documento
-(`nombre`, `id_fisico`, `puerto`, `slot`, etc.). El selector muestra `nombre` y usa `id`
-como valor; los documentos completos quedan en `state.chasis` del frontend.
+`id` (slug del nombre, sin `/`), `nombre` (mayúsculas), `region` (clave de `regiones` en `config/service_templates.json`), `activo`, `updated_by`, `updated_operation_id`, `updated_at`. Se escribe con `PUT /api/islas`. El nombre es el mismo valor que guardan `inventory_sheets.isla`, `ip_segments.isla` y `vlans.isla`.
+
+### `chasis/{id}` — p. ej. `CH-01`
+
+`id`, `nombre`, `isla_id` (→ `islas/{slug}`), `isla`, `region` (copiados de la isla), `id_fisico`, `marca`, `modelo`, `hostname`, `ip_admon`, `slots[]`, `puertos[]`, `activo`, `updated_*`. Se escribe con `PUT /api/chasis/{id}`. La relación es uno-a-muchos por `isla_id` (consulta `where isla_id ==`), en lugar de la lista `chasis_diponibles` del modelo anterior.
+
+### Flujo de topología en la pantalla
+
+Región (`config`) → `GET /api/islas?region=` (colección `islas`) → `GET /api/segments?isla=` y `GET /api/vlans?isla=` → con un medio que tenga `usa_chasis: true`, `GET /api/chasis?isla=` llena Chasis, y su `slots`/`puertos` llenan Slot y Puerto.
+
+Las VLAN de Internet por región (`regiones.*.vlan_internet`, hoy 3740 y 3750) solo se ofrecen con INTERNET y nunca con DATOS.
+
+### Migración desde `ISLAS` / `EQUIPO_CHASIS`
+
+```bash
+python -m scripts.seed_topologia --desde-legado --operator "Nombre" --dry-run   # revisar
+python -m scripts.seed_topologia --desde-legado --operator "Nombre"             # escribir
+```
+
+Lee `ISLAS` (`NOMBRE`, `region`, `chasis_diponibles`) y `EQUIPO_CHASIS` (`nombre`, `id_fisico`, `slot`, `puerto` como `"[1,3,5]"`) y crea `islas` y `chasis`. No borra las colecciones antiguas, es idempotente y reporta advertencias (islas sin nombre, chasis inexistentes o compartidos entre islas). En modo memoria se carga `config/topologia_demo.json` (datos ficticios).
 
 ### Índices
 
@@ -275,7 +284,16 @@ sequenceDiagram
 ### 6.3 Alta
 
 * `POST /api/generate-format` → solo vista previa, no persiste.
-* `POST /api/altas` → genera el texto, calcula `content_hash` y, en una transacción, busca `alta_hashes/{hash}`: si existe devuelve esa alta con `duplicate: true`; si no, crea `altas/{ALTA-...}` y el documento del hash.
+* `POST /api/altas` → valida medio, región y chasis (el nombre y el ID físico del chasis salen de Firestore, no del navegador) y llama a `InventoryRepository.register_alta`, que en **una transacción**:
+  1. lee la loopback del servicio o elige la primera libre del pool;
+  2. genera el texto con esa loopback y calcula `content_hash`;
+  3. lee `alta_hashes/{hash}`: si hay un alta activa con ese texto la devuelve con `duplicate: true` sin escribir nada;
+  4. escribe loopback, datos de la VLAN (merge), `altas/{ALTA-...}` y el hash.
+  Si algo falla no queda ninguna loopback huérfana.
+
+### 6.4 Baja de servicio (`POST /api/services/{id}/baja`)
+
+`decommission_service` hace en una transacción: consulta las IPs `OCUPADA`, la loopback y las altas activas del servicio; ajusta los contadores; libera las IPs (mismo registro que `release`, con `released_*`), borra la loopback y marca las altas `estado: BAJA` (el texto se conserva). Si no hay nada activo responde 404. Registrar de nuevo el mismo texto después de la baja crea un alta nueva.
 
 ---
 
@@ -294,16 +312,26 @@ Toda respuesta incluye `X-Operation-ID`. Los errores tienen la forma `{"detail":
 |---|---|---|---|
 | GET | `/api/health` | Salud + ping a Firestore | — |
 | GET | `/api/status` | Versión, backend, totales del inventario | — |
-| GET | `/api/config` | Plantillas, valores por defecto, centrales | — |
+| GET | `/api/config` | Plantillas, valores por defecto, medios (`usa_chasis`), regiones (`vlan_internet`), centrales | — |
 | GET | `/api/sheets` | Segmentos /24 con contadores | — |
 | GET | `/api/blocks?sheet=10.20.38.0` | Subredes con IPs libres y ocupadas | — |
 | POST | `/api/inventory/import` | multipart: `file`, `mode` (`merge`/`replace`), `confirm_replace` | `inventory.import` |
 | GET | `/api/inventory/export` | Descarga `.xlsx` | `inventory.export` |
-| POST | `/api/reservations` | `{ips[], service_id, purpose}` | `ip.reserve` |
+| POST | `/api/reservations` | `{ips[], service_id, cliente, purpose}` | `ip.reserve` |
 | POST | `/api/reservations/release` | `{ips[], service_id, reason}` | `ip.release` |
-| GET | `/api/services/{service_id}` | IPs y altas del servicio | — |
+| GET | `/api/services/{service_id}` | IPs, loopback y altas (con `estado`) del servicio | — |
+| POST | `/api/services/{service_id}/baja` | `{reason}` → libera IPs y loopback, altas a `BAJA` | `service.baja` |
+| GET | `/api/islas?region=` | Islas de la región (`islas`); sin región, todas las conocidas | — |
+| PUT | `/api/islas` | `{nombre, region, activo}` | `topologia.isla` |
+| GET | `/api/chasis?isla=` | Chasis activos de la isla | — |
+| PUT | `/api/chasis/{id}` | `{isla, nombre, id_fisico, …, slots[], puertos[], activo}` | `topologia.chasis` |
+| GET | `/api/segments?isla=` | Subredes de la isla (`isla=` vacío: sin isla) | — |
+| PUT | `/api/sheets/{red}/isla` | `{isla}` asigna la isla a un /24 | `inventory.set_isla` |
+| GET | `/api/vlans?isla=` | Datos guardados de las VLAN | — |
+| PUT | `/api/vlans` | `{isla, vlan, rd, vrf_name, vrf_desc, vlan_desc}` | `vlan.upsert` |
+| GET | `/api/loopbacks/next?service_id=` | Loopback que tendría el servicio (no reserva) | — |
 | POST | `/api/generate-format` | `{data}` → vista previa | — |
-| POST | `/api/altas` | `{data}` → genera y registra | `alta.create` |
+| POST | `/api/altas` | `{data}` → genera y registra (loopback + VLAN + alta en una transacción) | `alta.create` |
 | GET | `/api/altas?service_id=&limit=` | Historial | — |
 | GET | `/api/altas/{alta_id}` | Alta completa | — |
 | GET | `/api/operations/{operation_id}` | Detalle de una operación | — |
@@ -412,7 +440,7 @@ Los archivos se validan con Pydantic al iniciar (`catalog.load_catalog`); un JSO
 ## 11. Pruebas y CI
 
 ```bash
-python -m pytest            # 52 pruebas (+2 del emulador, que se omiten sin FIRESTORE_EMULATOR_HOST)
+python -m pytest            # ~87 pruebas (+3 del emulador, que se omiten sin FIRESTORE_EMULATOR_HOST)
 ruff check backend scripts tests
 ```
 
@@ -422,11 +450,13 @@ ruff check backend scripts tests
 | `tests/unit/test_units.py` | Plantillas por servicio, campos de medio, parser (gateway, etiquetas), settings y credenciales, prefijo de colecciones, formato JSON de log, unicidad de IDs |
 | `tests/unit/test_parser_y_formato.py` | Parser y generador con el Excel de ejemplo |
 | `tests/api/test_regresiones.py` | Hallazgos de la revisión de código: nombres de hoja, parámetros inválidos, error 500 con ID, gateway vs. IP asignada, exportación sin fórmulas, re-subdivisión, escrituras protegidas, PSK, altas concurrentes |
+| `tests/api/test_topologia.py` | Regiones, islas, chasis y la migración desde `ISLAS`/`EQUIPO_CHASIS` |
+| `tests/api/test_servicio.py` | Alta con región/medio/chasis, alta atómica (sin loopback huérfana), baja de servicio, cliente al liberar e importar/exportar |
 | `tests/integration/test_firestore_emulator.py` | Repositorio con el **SDK real** contra el emulador (consultas, lotes, transacciones, doble reserva) |
 
 `conftest.py` fuerza `DATA_BACKEND=memory` y crea un `TestClient` limpio por prueba.
 
-**CI:** el repositorio todavía no tiene un workflow de GitHub Actions. Hasta que se agregue, ejecute localmente `ruff check backend scripts tests` y `python -m pytest` antes de cada push (y `tests/integration` con el emulador cuando toque el repositorio).
+**CI:** `.github/workflows/ci.yml` corre en cada push y PR: ruff, validez de los JSON de `config/` y `firebase/`, pytest, `node --check` y, en un segundo trabajo, `tests/integration` contra el emulador de Firestore (que también compila `firestore.rules`).
 
 ---
 
@@ -458,7 +488,8 @@ def hacer_algo(req: AlgoRequest, state: StateDep, operator: OperatorDep) -> dict
 
 * **Autenticación:** el operador es declarativo. Siguiente paso natural: Firebase Authentication o IAP; el middleware ya centraliza el operador, bastaría con tomarlo de un token verificado.
 * **Plantilla DATOS:** pendiente de los valores reales de Ingeniería (`pendiente_validar`); los datos reales se guardan por VLAN en `vlans`.
-* **Loopbacks:** no se liberan automáticamente al dar de baja un servicio; hoy se libera borrando el documento `loopbacks/{ip}`.
+* **Topología sin pantalla de administración:** islas y chasis se mantienen con `PUT /api/islas`, `PUT /api/chasis/{id}` o `scripts.seed_topologia`.
+* **Puertos del chasis:** se elige slot y puerto, pero no se controla su ocupación entre servicios.
 * **Catálogo de centrales:** `config/centrales.json` contiene datos de demostración.
 * **Importación no atómica** entre lotes de 450 escrituras (idempotente; repetir si falla).
 * **Sin pruebas automatizadas del frontend** en CI (se validó con Playwright de forma manual; ver capturas en `docs/img`).

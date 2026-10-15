@@ -17,6 +17,7 @@ const state = {
   reservedForService: new Map(), // ip -> service_id reservado en esta sesión
   registeredAlta: null,          // { alta_id, text } del último registro vigente
   releaseTarget: null,
+  bajaTarget: null,
   sinFactibilidad: false,
   islaSegments: [],     // subredes de la isla seleccionada (sin detalle de IPs)
   vlanCatalog: [],      // datos guardados (RD, VRF, descripciones) de las VLAN de la isla
@@ -63,17 +64,41 @@ function formatDate(iso) {
  });
 }
 
-window.toggleChasis = async function () {
-    const medio = document.getElementById("s-medio");
-    const chasis = document.getElementById("grp-chasis");
+// ===========================================================================
+// Topología: medio de transmisión y chasis de la isla
+// ===========================================================================
+function medioUsaChasis() {
+  const medio = state.config && state.config.medios[$("s-medio").value];
+  return Boolean(medio && medio.usa_chasis);
+}
 
-    if (!medio || !chasis) return;
+async function onMedioChange() {
+  $("grp-chasis").hidden = !medioUsaChasis();
+  markFormatStale();
+  await loadChasisForIsla();
+}
 
-    chasis.style.display =
-        medio.value === "RADIO" ? "none" : "block";
-    markFormatStale();
-    await loadChasisForIsla();
-};
+function selectedChasis() {
+  return state.chasis.find(ch => ch.id === $("s-chasis").value) || null;
+}
+
+function fillChasisPorts() {
+  const chasis = selectedChasis();
+  for (const [id, field, label] of [["s-chasis-slot", "slots", "Slot"], ["s-chasis-puerto", "puertos", "Puerto"]]) {
+    const select = $(id);
+    const previous = select.value;
+    const values = chasis ? chasis[field] || [] : [];
+    select.replaceChildren(new Option(values.length ? label : `${label} (sin datos)`, ""),
+      ...values.map(v => new Option(`${label} ${v}`, v)));
+    select.disabled = !values.length;
+    if (values.includes(previous)) select.value = previous;
+  }
+}
+
+function onChasisChange() {
+  fillChasisPorts();
+  markFormatStale();
+}
 
 async function loadChasisForIsla() {
   const requestId = ++state.chasisRequestId;
@@ -82,25 +107,29 @@ async function loadChasisForIsla() {
   state.chasis = [];
   select.replaceChildren(new Option("SIN CHASIS", ""));
   select.disabled = false;
-  const region = $("s-region").value;
+  fillChasisPorts();
   const isla = selectedIsla();
-  if ($("s-medio").value !== "FIBRA" || !region || !isla) return;
+  if (!medioUsaChasis() || !isla) return;
   select.disabled = true;
   try {
-    const params = new URLSearchParams({ region, isla });
-    const result = await api(`/api/chasis?${params}`);
+    const result = await api(`/api/chasis?${new URLSearchParams({ isla })}`);
     if (requestId !== state.chasisRequestId) return;
     state.chasis = result.chasis;
-    select.replaceChildren(new Option("SIN CHASIS", ""),
-      ...state.chasis.map(ch => new Option(ch.nombre || ch.id, ch.id)));
+    select.replaceChildren(new Option(state.chasis.length ? "SIN CHASIS" : "La isla no tiene chasis registrados", ""),
+      ...state.chasis.map(ch => new Option(ch.id_fisico ? `${ch.nombre} (${ch.id_fisico})` : ch.nombre || ch.id, ch.id)));
     if (state.chasis.some(ch => ch.id === previous)) select.value = previous;
   } catch (err) {
     if (requestId !== state.chasisRequestId) return;
-    showError(err, "No se pudieron cargar los chasis de la isla");
+    // 404: la isla aún no está registrada en la topología; se continúa sin chasis.
+    if (err.status !== 404) showError(err, "No se pudieron cargar los chasis de la isla");
   } finally {
-    if (requestId === state.chasisRequestId) select.disabled = false;
+    if (requestId === state.chasisRequestId) {
+      select.disabled = false;
+      fillChasisPorts();
+    }
   }
 }
+
 // ===========================================================================
 // API con trazabilidad
 // ===========================================================================
@@ -238,7 +267,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   await loadConfig();
-      toggleChasis();
 
   updateGenerationAvailability();
   await loadInventory();
@@ -380,6 +408,12 @@ async function loadConfig() {
   const select = $("p-titulo");
   select.replaceChildren(...Object.entries(cfg.services).map(([name, tpl]) => new Option(tpl.label, name)));
 
+  $("s-region").replaceChildren(new Option("Seleccione la región", ""),
+    ...Object.entries(cfg.regiones).map(([name, r]) => new Option(r.label, name)));
+  $("s-medio").replaceChildren(...Object.entries(cfg.medios).map(([name, m]) => new Option(m.label, name)));
+  $("s-medio").value = "FIBRA" in cfg.medios ? "FIBRA" : $("s-medio").options[0].value;
+  $("grp-chasis").hidden = !medioUsaChasis();
+
   const d = cfg.network_defaults;
   $("m-raisecom").value = d.equipo_raisecom;
   $("s-equipo").value = d.equipo_cpe;
@@ -439,25 +473,8 @@ function onServiceTypeChange(typeName) {
     }
 
     applyServiceTemplate(typeName);
-
-    const regionBox = $("internet-region-container");
-
-if (typeName === "INTERNET") {
-
-    regionBox.style.display = "";
-
-} else {
-
-    regionBox.style.display = "none";
-
-    if ($("internet-region")) {
-        $("internet-region").value = "";
-    }
-}
-
-fillVlanSelect();
-
-markFormatStale();
+    fillVlanSelect();
+    markFormatStale();
 }
 
 // ===========================================================================
@@ -516,23 +533,11 @@ async function loadIslas(preferred) {
   await onIslaChange({ keepSelection: select.value === before });
 }
 
-const loadIslasFromDB = async ()=> {
-  try {
-}catch(err){
-  console.log("Error al cargar islas desde la base de datos:", err);
-}
-}
-
-
-async function onIslaChange({ keepSelection = false, resetMedio = false } = {}) {
+async function onIslaChange({ keepSelection = false } = {}) {
   const requestId = ++state.inventoryRequestId;
   const isla = $("eq-isla").value;
-  if (resetMedio) {
-    $("s-medio").value = "";
-    toggleChasis();
-  } else {
-    loadChasisForIsla();
-  }
+  if (!keepSelection) markFormatStale();
+  loadChasisForIsla();
   const previousVlan = keepSelection ? state.currentVlan : "";
   state.islaSegments = [];
   state.vlanCatalog = [];
@@ -575,65 +580,22 @@ function fillVlanSelect(preferred = "") {
   }
   for (const v of state.vlanCatalog) if (!(v.vlan in free)) free[v.vlan] = null;
   
-let vlans = Object.keys(free);
-
-const tpl = currentTemplate();
-
-const regionInternet =
-    $("internet-region")
-        ? $("internet-region").value
-        : "";
-
-if (
-    tpl &&
-    tpl.label &&
-    tpl.label.toUpperCase() === "INTERNET"
-) {
-
-    if (regionInternet === "METRO") {
-
-        // Solo Metropolitana
-        vlans = vlans.filter(
-            v => v === "3740"
-        );
-
-    } else if (regionInternet === "DEPTO") {
-
-        // Solo Departamental
-        vlans = vlans.filter(
-            v => v === "3750"
-        );
-
-    } else {
-
-        // Si no ha elegido región, no mostrar VLAN
-        vlans = [];
-    }
-
-} else {
-
-    // DATOS y demás servicios
-    // Ocultar VLAN reservadas para Internet
-    vlans = vlans.filter(
-        v => !["3740", "3750"].includes(v)
-    );
-}
+  // INTERNET usa solo la VLAN de Internet de la región; DATOS nunca las ofrece.
+  const tpl = currentTemplate();
+  const esInternet = Boolean(tpl && tpl.ip_publica);
+  const regiones = (state.config && state.config.regiones) || {};
+  const internetVlans = new Set(Object.values(regiones).map(r => r.vlan_internet).filter(Boolean));
+  const region = regiones[$("s-region").value];
+  let vlans = Object.keys(free);
+  vlans = esInternet
+    ? vlans.filter(v => region && v === region.vlan_internet)
+    : vlans.filter(v => !internetVlans.has(v));
 
   const options = [new Option(state.islaSegments.length ? "Seleccione la VLAN" : "Sin segmentos en esta isla", "")];
   vlans.forEach(v => options.push(new Option(free[v] === null ? `VLAN ${v} (sin IPs cargadas)` : `VLAN ${v} — ${free[v]} libres`, v)));
   
-  if (
-    state.islaSegments.length &&
-    !(
-        tpl &&
-        tpl.label &&
-        tpl.label.toUpperCase() === "INTERNET"
-    )
-) {
-    options.push(
-        new Option("Todas las VLAN de la isla", "*")
-    );
-}
+  if (esInternet && !region) options[0] = new Option("Seleccione primero la región", "");
+  if (state.islaSegments.length && !esInternet) options.push(new Option("Todas las VLAN de la isla", "*"));
 
   select.replaceChildren(...options);
   select.value = [...select.options].some(o => o.value === preferred) ? preferred : "";
@@ -804,8 +766,6 @@ function assignFirstFreeIP() {
 }
 
 function renderAssignedTable(block) {
-  console.log("ASSIGNED:", block.assigned_ips);
-
   const rows = block.assigned_ips.map(item => el("tr", {},
     el("td", { class: "mono" }, item.ip),
     el("td", {}, `${item.id || ""} ${item.cliente || ""}`.trim()),
@@ -851,15 +811,9 @@ async function confirmIPReservation() {
   const button = $("btn-reserve-ip");
   button.disabled = true;
   try {
-    const result = await api("/api/reservations", 
-      { 
-      method: "POST", 
-      json: { 
-          ips, 
-          service_id: serviceId,
-          cliente: $("p-cliente").value.trim(),
-          purpose: "WAN" 
-       } 
+    const result = await api("/api/reservations", {
+      method: "POST",
+      json: { ips, service_id: serviceId, cliente: $("p-cliente").value.trim(), purpose: "WAN" },
     });
     ips.forEach(ip => state.reservedForService.set(ip, serviceId));
     toast(result.message, "success", result.operation_id);
@@ -867,7 +821,7 @@ async function confirmIPReservation() {
     // conservar la selección reservada en el formulario
     $("eq-ip-wan").value = ips[0];
     $("eq-ips-adicionales").value = ips.slice(1).join(", ");
-    $("a").value = block.network_ip;
+    $("eq-red-wan").value = block.network_ip;
     $("eq-gw-wan").value = block.gateway_ip || "";
     state.selectedFreeIPs = [];
     for (const option of $("ipam-free-select").options) option.selected = false;
@@ -1196,42 +1150,13 @@ function markFormatStale() {
   status.textContent = "Hay cambios sin registrar. Pulse “Registrar alta” para guardar la nueva versión antes de copiarla.";
 }
 
-  async function buildRouteFromFirebase() {
-
-      const chasisSelect = document.getElementById("s-chasis");
-
-      if (!chasisSelect) {
-         console.error("No se encontró s-chasis");
-         return getEquipmentRowsData();
-      }
-
-      const chasisId =
-         chasisSelect.selectedOptions[0]?.value ||
-         chasisSelect.options[chasisSelect.selectedIndex]?.value ||
-         "";
-
-      console.warn("INDEX:", chasisSelect.selectedIndex);
-      console.warn("ID:", chasisId);
-      console.warn("TEXT:", chasisSelect.selectedOptions[0]?.text);
-
-      if (!chasisId) {
-          return getEquipmentRowsData();
-     }
-
-       return getEquipmentRowsData();
-  }
-
-
-  async function collectFormData() {  
-    
+function collectFormData() {
   let fecha = $("p-fecha").value;
-  
-    const p = fecha.split("-");
-    if (p.length === 3 && p[0].length === 4) fecha = `${p[2]}-${p[1]}-${p[0]}`;
-    const tpl = currentTemplate();
-  
-    return {
-  
+  const p = fecha.split("-");
+  if (p.length === 3 && p[0].length === 4) fecha = `${p[2]}-${p[1]}-${p[0]}`;
+  const tpl = currentTemplate();
+  const usaChasis = medioUsaChasis();
+  return {
     titulo: $("p-titulo").value,
     id_servicio: $("p-id-servicio").value.trim(),
     cliente: $("p-cliente").value.trim(),
@@ -1240,7 +1165,11 @@ function markFormatStale() {
     fecha,
     factibilidad_bloque: $("p-factibilidad-bloque").value,
     sin_factibilidad: state.sinFactibilidad,
+    region: $("s-region").value,
     medio: $("s-medio").value,
+    chasis_id: usaChasis ? $("s-chasis").value : "",
+    chasis_slot: usaChasis ? $("s-chasis-slot").value : "",
+    chasis_puerto: usaChasis ? $("s-chasis-puerto").value : "",
     equipo_cpe: $("s-equipo").value,
     observaciones: $("s-observaciones").value,
     isla: selectedIsla(),
@@ -1255,7 +1184,7 @@ function markFormatStale() {
     desc_vlan: $("eq-desc-vlan").value.trim(),
     ip_publica: tpl && tpl.ip_publica ? $("eq-ip-publica").value.trim() : "",
     loopback_auto: $("eq-loopback-auto").checked,
-    equipos_claro: await buildRouteFromFirebase(),
+    equipos_claro: getEquipmentRowsData(),
     equipo_raisecom: $("m-raisecom").value,
     obs_medio: $("m-obs-medio").value,
   };
@@ -1277,13 +1206,7 @@ async function updateGeneratedFormat() {
   const requestId = ++state.formatRequestId;
   const output = $("output-format-textarea");
   try {
-
-    const formData = await collectFormData();
-
-    const data = await api("/api/generate-format", { 
-       method: "POST", 
-       json: { data: formData }
-      });
+    const data = await api("/api/generate-format", { method: "POST", json: { data: collectFormData() } });
 
     if (requestId !== state.formatRequestId) return;
     output.value = data.formatted_text;
@@ -1376,17 +1299,52 @@ async function searchService(event) {
   box.replaceChildren(el("p", {}, "Buscando..."));
   try {
     const r = await api(`/api/services/${encodeURIComponent(serviceId)}`);
+    const activas = r.altas.filter(a => a.estado !== "BAJA");
+    const hayAlgoActivo = r.ips.length || r.loopback || activas.length;
     box.replaceChildren(
+      hayAlgoActivo ? el("div", { class: "modal-buttons" },
+        el("button", { type: "button", class: "btn btn-danger btn-sm", onclick: () => openBajaModal(r) }, "Dar de baja el servicio")) : "",
+      el("p", {}, "Loopback: ", r.loopback ? el("span", { class: "mono" }, `${r.loopback}/32`) : "sin loopback asignada"),
       el("h4", {}, `IPs asignadas (${r.ips.length})`),
       r.ips.length ? el("ul", {}, ...r.ips.map(ip => el("li", {},
         el("span", { class: "mono" }, ip.ip), ` · ${ip.purpose || ""} · subred ${ip.segment_id.replace("_", "/")} · por ${ip.assigned_by || "—"} (${formatDate(ip.assigned_at)})`))) : el("p", { class: "hint" }, "Sin IPs asignadas."),
       el("h4", {}, `Altas registradas (${r.altas.length})`),
       r.altas.length ? el("ul", {}, ...r.altas.map(a => el("li", {},
         el("button", { type: "button", class: "link-btn mono", onclick: () => showAlta(a.alta_id) }, a.alta_id),
-        ` · ${formatDate(a.created_at)} · ${a.operator || ""}`))) : el("p", { class: "hint" }, "Sin altas registradas."),
+        ` · ${formatDate(a.created_at)} · ${a.operator || ""}${a.estado === "BAJA" ? " · DE BAJA" : ""}`))) : el("p", { class: "hint" }, "Sin altas registradas."),
     );
   } catch (err) {
     box.replaceChildren(el("p", { class: "result-error" }, err.message));
+  }
+}
+
+function openBajaModal(servicio) {
+  if (!ensureOperator()) return;
+  state.bajaTarget = servicio.service_id;
+  const activas = servicio.altas.filter(a => a.estado !== "BAJA").length;
+  $("baja-summary").textContent =
+    `Servicio ${servicio.service_id}: se liberarán ${servicio.ips.length} IP(s)` +
+    `${servicio.loopback ? ` y la loopback ${servicio.loopback}` : ""}, y ${activas} alta(s) quedarán marcadas como BAJA.`;
+  $("baja-reason").value = "";
+  openModal("baja-modal");
+}
+
+async function submitBaja(event) {
+  event.preventDefault();
+  const serviceId = state.bajaTarget;
+  if (!serviceId) return;
+  try {
+    const result = await api(`/api/services/${encodeURIComponent(serviceId)}/baja`, {
+      method: "POST", json: { reason: $("baja-reason").value.trim() },
+    });
+    closeModal("baja-modal");
+    for (const ip of result.ips) state.reservedForService.delete(ip);
+    toast(result.message, "success", result.operation_id);
+    $("search-service-id").value = serviceId;
+    $("search-service-form").requestSubmit();
+    await refreshInventorySelection();
+  } catch (err) {
+    showError(err, "No se pudo dar de baja el servicio");
   }
 }
 
@@ -1419,7 +1377,7 @@ async function loadAltasHistory() {
       el("td", {}, formatDate(a.created_at)),
       el("td", {}, a.service_id || ""),
       el("td", {}, a.cliente || ""),
-      el("td", {}, a.tipo_servicio || ""),
+      el("td", {}, a.estado === "BAJA" ? `${a.tipo_servicio || ""} (baja)` : a.tipo_servicio || ""),
       el("td", { class: "mono" }, a.ip_wan || ""),
       el("td", {}, a.operator || ""),
       el("td", {}, el("button", { type: "button", class: "btn btn-sm btn-outline", onclick: () => showAlta(a.alta_id) }, "Ver")),

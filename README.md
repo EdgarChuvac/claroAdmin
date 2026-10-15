@@ -258,7 +258,7 @@ gcloud run deploy claro-admin \
    python -m scripts.import_excel "Inventario IPs.xlsx" --operator "Nombre Apellido" --mode replace --yes
    ```
 
-   Formato esperado del Excel: una hoja por segmento /24 cuyo nombre es la red base terminada en `.0` (`10.20.38.0`; se toleran espacios); columnas en pares *octeto | etiqueta*; la fila de red lleva la VLAN, el gateway se rotula `GW`, el bloque cierra con `BROADCAST`; celdas vacías o `-` = IP libre; cualquier otro texto = ID de servicio. Las hojas con otro nombre se ignoran y se informan.
+   Formato esperado del Excel: una hoja por segmento /24 cuyo nombre es la red base terminada en `.0` (`10.20.38.0`; se toleran espacios); columnas en pares *octeto | etiqueta*; la fila de red lleva la VLAN, el gateway se rotula `GW`, el bloque cierra con `BROADCAST`; celdas vacías o `-` = IP libre; cualquier otro texto = `ID_SERVICIO` seguido opcionalmente del nombre del cliente (`SRV-001 BANCO DEMO`). Las hojas con otro nombre se ignoran y se informan.
 
 2. **Catálogo de centrales:** edite `config/centrales.json` con los equipos reales (el archivo trae datos de demostración marcados `"demo": true`) y cárguelo:
 
@@ -268,7 +268,16 @@ gcloud run deploy claro-admin \
 
    Mientras la colección `centrales` esté vacía, la app usa el archivo.
 
-3. **Plantillas por tipo de servicio:** `config/service_templates.json` define VRF, RD, políticas y *vpn-targets* por servicio, y los valores de red por defecto (gestor Raisecom, CPE, etc.). **La plantilla de DATOS viene sin VRF/RD (`pendiente_validar: true`)**; esos datos se guardan por VLAN desde la pantalla de Equipamiento. El rango de loopbacks se define en `network_defaults.loopback_pool_start/end`. Reinicie la app tras editarlas.
+3. **Topología (regiones, islas y chasis):** las regiones y su VLAN de Internet están en `config/service_templates.json` (`regiones`). Las islas y los chasis viven en las colecciones `islas` y `chasis`. Si los datos están en las colecciones antiguas `ISLAS` y `EQUIPO_CHASIS`, mígrelos (revise primero con `--dry-run`):
+
+   ```bash
+   python -m scripts.seed_topologia --desde-legado --operator "Nombre Apellido" --dry-run
+   python -m scripts.seed_topologia --desde-legado --operator "Nombre Apellido"
+   ```
+
+   También puede cargar un JSON con el formato de `config/topologia_demo.json` (`--archivo ruta.json`) o usar `PUT /api/islas` y `PUT /api/chasis/{id}`.
+
+4. **Plantillas por tipo de servicio:** `config/service_templates.json` define VRF, RD, políticas y *vpn-targets* por servicio, y los valores de red por defecto (gestor Raisecom, CPE, etc.). **La plantilla de DATOS viene sin VRF/RD (`pendiente_validar: true`)**; esos datos se guardan por VLAN desde la pantalla de Equipamiento. El rango de loopbacks se define en `network_defaults.loopback_pool_start/end`. Reinicie la app tras editarlas.
 
 ---
 

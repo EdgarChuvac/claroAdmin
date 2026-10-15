@@ -87,3 +87,25 @@ def test_transactions_prevent_double_booking(emulator_repo):
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(attempt, range(6)))
     assert results.count("ok") == 1
+
+
+def test_alta_atomica_y_baja_con_sdk_real(emulator_repo):
+    """register_alta y decommission_service hacen consultas dentro de la transacción."""
+    repo = emulator_repo
+    repo.upsert_isla("MONTE VERDE", "METROPOLITANA", "ci", "OP-T")
+    repo.upsert_chasis("CH-1", "MONTE VERDE", {"nombre": "Chasis 1", "slots": ["1"]}, "ci", "OP-T")
+    assert [c["id"] for c in repo.list_chasis_isla("monte verde")] == ["CH-1"]
+    assert [i["nombre"] for i in repo.list_islas_region("METROPOLITANA")] == ["MONTE VERDE"]
+
+    repo.reserve(["10.20.38.8"], "S-B", "ci", "OP-1", cliente="ACME")
+    record = {"service_id": "S-B", "operator": "ci", "operation_id": "OP-A"}
+    doc, dup = repo.register_alta(record, lambda lb: f"ALTA {lb}",
+                                  loopback_pool=("10.212.100.1", "10.212.100.3"),
+                                  vlan=("MONTE VERDE", "100", {"rd": "65000:1"}))
+    assert not dup and doc["loopback"] == "10.212.100.1"
+    assert repo.list_vlans("MONTE VERDE")[0]["rd"] == "65000:1"
+
+    result = repo.decommission_service("S-B", "ci", "OP-BAJA", "prueba")
+    assert result["ips"] == ["10.20.38.8"] and result["loopbacks"] == ["10.212.100.1"]
+    assert repo.search_service("S-B") == [] and repo.loopback_for_service("S-B") is None
+    assert repo.get_alta(doc["alta_id"])["estado"] == "BAJA"

@@ -1,14 +1,19 @@
-"""Islas, segmentos por isla, catálogo de VLANs (RD/VRF) y loopbacks."""
+"""Topología (islas y chasis), segmentos por isla, catálogo de VLANs (RD/VRF) y loopbacks."""
 
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from fastapi import APIRouter, Query
 
 from ...core import tracing
+from ...core.errors import InventoryError
 from ...schemas.requests import (
+    CHASIS_ID_PATTERN,
+    ChasisRequest,
+    IslaRequest,
     SheetIslaRequest,
     VlanRequest,
 )
@@ -24,25 +29,55 @@ logger = logging.getLogger("claro.api")
 router = APIRouter()
 
 
+def _region(state, value: str) -> str:
+    try:
+        return state.catalog.region(value)
+    except ValueError as exc:
+        raise InventoryError(str(exc)) from exc
+
+
 @router.get("/api/islas")
 def list_islas(
     state: StateDep,
-    region: str | None = Query(default=None, pattern=r"^(METROPOLITANA|DEPARTAMENTAL)$"),
+    region: str | None = Query(default=None, max_length=40),
 ) -> dict[str, Any]:
+    """Islas de una región (colección ``islas``) o, sin región, todas las conocidas."""
+    unassigned = any(not s.get("isla") for s in state.repo.list_sheets())
     if region is not None:
-        return {"region": region, "islas": state.repo.list_islas_region(region), "has_unassigned": False}
+        region = _region(state, region)
+        detalle = state.repo.list_islas_region(region)
+        return {"region": region, "islas": [d["nombre"] for d in detalle], "detalle": serialize(detalle),
+                "has_unassigned": unassigned}
     islas = set(state.repo.list_islas())
     islas |= {c.isla.upper() for c in state.catalog.centrales if c.isla}
-    unassigned = any(not s.get("isla") for s in state.repo.list_sheets())
     return {"islas": sorted(islas), "has_unassigned": unassigned}
 
+@router.put("/api/islas")
+def upsert_isla(req: IslaRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
+    region = _region(state, req.region)
+    tracing.audit("topologia.isla", isla=req.nombre, region=region, activo=req.activo)
+    doc = state.repo.upsert_isla(tracing.clean_text(req.nombre, 60), region, operator,
+                                 tracing.current_operation_id(), req.activo)
+    return {"message": f"Isla {doc['nombre']} guardada en la región {region}.", "isla": serialize(doc),
+            "operation_id": tracing.current_operation_id()}
+
 @router.get("/api/chasis")
-def list_chasis(
-    state: StateDep,
-    region: str = Query(pattern=r"^(METROPOLITANA|DEPARTAMENTAL)$"),
-    isla: str = Query(min_length=1, max_length=60, pattern=r"\S"),
-) -> dict[str, Any]:
-    return {"chasis": serialize(state.repo.list_chasis_isla(region, isla.strip()))}
+def list_chasis(state: StateDep, isla: str = Query(min_length=1, max_length=60, pattern=r"\S")) -> dict[str, Any]:
+    """Chasis activos de una isla registrada en la topología."""
+    return {"isla": isla.strip().upper(), "chasis": serialize(state.repo.list_chasis_isla(isla.strip()))}
+
+@router.put("/api/chasis/{chasis_id}")
+def upsert_chasis(chasis_id: str, req: ChasisRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
+    if not re.fullmatch(CHASIS_ID_PATTERN, chasis_id):
+        raise InventoryError("ID de chasis inválido: use letras, números, guion o guion bajo (máx. 64).")
+    tracing.audit("topologia.chasis", chasis_id=chasis_id, isla=req.isla, activo=req.activo)
+    values = {k: tracing.clean_text(getattr(req, k), 80) for k in state.repo.CHASIS_TEXT_FIELDS}
+    values.update(slots=[tracing.clean_text(v, 20) for v in req.slots],
+                  puertos=[tracing.clean_text(v, 20) for v in req.puertos], activo=req.activo)
+    doc = state.repo.upsert_chasis(chasis_id, tracing.clean_text(req.isla, 60), values, operator,
+                                   tracing.current_operation_id())
+    return {"message": f"Chasis {doc['nombre']} guardado en la isla {doc['isla']}.", "chasis": serialize(doc),
+            "operation_id": tracing.current_operation_id()}
 
 
 @router.get("/api/segments")

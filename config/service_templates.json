@@ -75,7 +75,8 @@
   "medios": {
     "FIBRA": {
       "label": "FIBRA ÓPTICA",
-      "ruta": "FO"
+      "ruta": "FO",
+      "usa_chasis": true
     },
     "RADIO": {
       "label": "RADIOENLACE",
@@ -84,6 +85,16 @@
     "GPON": {
       "label": "G-PON",
       "ruta": "G-PON"
+    }
+  },
+  "regiones": {
+    "METROPOLITANA": {
+      "label": "METROPOLITANA",
+      "vlan_internet": "3740"
+    },
+    "DEPARTAMENTAL": {
+      "label": "DEPARTAMENTAL",
+      "vlan_internet": "3750"
     }
   }
 }
