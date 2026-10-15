@@ -458,6 +458,42 @@ class InventoryRepository:
         sheets = [snap.to_dict() for snap in self.col("inventory_sheets").stream()]
         return sorted(sheets, key=lambda s: ip_sort_key(s.get("sheet", "")))
 
+    def list_chasis(self) -> list[dict[str, Any]]:
+        docs = (
+            self.client
+            .collection("Equipos_Transmision")
+            .document("REGION")
+            .collection("METROPOLITANA")
+            .document("MONTE VERDE")
+            .collection("CHASIS")
+            .stream()   
+       
+        )
+        result = []
+        
+        for snap in docs:
+            data = snap.to_dict()
+
+            print(
+                "CHASIS ->",
+                snap.id,
+                "| nombre =",
+                data.get("nombre"),
+                "| tipo =",
+                data.get("tipo")
+           )
+
+            result.append({
+                "id": snap.id,
+                "nombre": data.get("nombre", 
+        snap.id),
+            })
+
+        print("CHASIS ENCONTRADOS:", result)
+
+        return sorted(result, key=lambda x:
+        x["nombre"])
+    
     def get_blocks(self, sheet: str) -> list[dict[str, Any]]:
         if not self.col("inventory_sheets").document(sheet).get().exists:
             raise NotFoundError("La hoja solicitada no existe en el inventario.")
@@ -476,10 +512,15 @@ class InventoryRepository:
             ]
             assigned = [
                 {
-                    "octet": d["octet"], "ip": d["ip"], "id": d.get("service_id"),
-                    "status": STATUS_USED, "assigned_by": d.get("assigned_by"),
+                    "octet": d["octet"],
+                    "ip": d["ip"], 
+                    "id": d.get("service_id"),
+                    "cliente": d.get("cliente", ""),
+                    "status": STATUS_USED, 
+                    "assigned_by": d.get("assigned_by"),
                     "assigned_at": d.get("assigned_at"),
                     "assigned_operation_id": d.get("assigned_operation_id"),
+                
                 }
                 for d in ips if d.get("status") == STATUS_USED
             ]
@@ -559,8 +600,17 @@ class InventoryRepository:
                 "updated_at": utcnow(),
             })
 
-    def reserve(self, ips: list[str], service_id: str, operator: str, operation_id: str,
-                purpose: str = "WAN") -> list[dict[str, Any]]:
+    def reserve(
+            self, 
+            ips: list[str], 
+            service_id: str,
+            cliente: str, 
+            operator: str, 
+            operation_id: str,
+            purpose: str = "WAN"
+    
+    )       -> list[dict[str, Any]]:
+        
         ips = normalize_ips(ips)
         refs = {ip: self.col("ip_addresses").document(ip) for ip in ips}
 
@@ -583,12 +633,15 @@ class InventoryRepository:
                 pending.append((refs[ip], {
                     "status": STATUS_USED,
                     "service_id": service_id,
+                    "cliente": cliente,
                     "purpose": purpose,
                     "assigned_by": operator,
                     "assigned_at": now,
                     "assigned_operation_id": operation_id,
                     "updated_at": now,
                 }, data))
+
+
             self._adjust_counters_reads_then_writes(transaction, deltas, pending)
             return [{**data, **update, "ip": data["ip"]} for _ref, update, data in pending]
 

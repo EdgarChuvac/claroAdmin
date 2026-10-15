@@ -25,8 +25,16 @@ router = APIRouter()
 @router.post("/api/reservations")
 def reserve_ips(req: ReservationRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
     tracing.audit("ip.reserve", service_id=req.service_id, ips=req.ips, purpose=req.purpose)
-    reserved = state.repo.reserve(req.ips, req.service_id, operator,
-                                  tracing.current_operation_id(), req.purpose)
+    
+    reserved = state.repo.reserve(
+        req.ips, 
+        req.service_id,
+        req.cliente, 
+        operator,
+        tracing.current_operation_id(), 
+        req.purpose
+    )
+
     logger.info("IPs reservadas", extra={"ips": req.ips, "service_id": req.service_id})
     return {
         "message": f"{len(reserved)} IP(s) reservada(s) para el servicio {req.service_id}.",

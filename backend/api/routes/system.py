@@ -48,11 +48,14 @@ def get_config(state: StateDep) -> dict[str, Any]:
     if not centrales:
         centrales = [c.model_dump() for c in state.catalog.centrales]
         source = "archivo"
+
     return {
         **state.catalog.to_public_dict(),
         "centrales": serialize(centrales),
         "centrales_source": source,
-        "max_upload_mb": state.settings.max_upload_mb,
+        "chasis": state.repo.list_chasis(),
+        "max_upload_mb": 
+    state.settings.max_upload_mb,
         "backend": state.backend,
         "version": APP_VERSION,
     }

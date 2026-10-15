@@ -20,7 +20,15 @@ from typing import Any, Dict, List, Union
 import openpyxl
 
 GATEWAY_LABEL_RE = re.compile(r"(^|[^A-Z0-9])(GW|GATEWAY)([^A-Z0-9]|$)")
-FREE_LABELS = {"", "NONE", "-"}
+FREE_LABELS = {
+    "",
+    "NONE",
+    "-",
+    "LIBRE",
+    "DISPONIBLE",
+    "FREE",
+    "AVAILABLE"
+}
 
 def normalize_sheet_name(sheet_name: str) -> Union[str, None]:
     """Devuelve la red base /24 normalizada (``10.20.38.0``) o None si no es válida."""
@@ -231,13 +239,25 @@ class ExcelIPAMReader:
                                     })
                                 else:
                                     # Assigned to client ID
+                                    
+                                    parts = h_str.split(" ", 1)
+
+                                    service_id = parts[0].strip()
+                                    customer_name = parts[1].strip() if len(parts) > 1 else ""
+
+                               
+                                    print("DEBUG:", h_str)
+                                    print("SERVICE:", service_id)
+                                    print("CLIENTE:", customer_name)
+                                    
                                     block.assigned_ips.append({
-                                        "octet": h_octet,
-                                        "ip": h_ip,
-                                        "id": h_str,
-                                        "row": host_r,
-                                        "status": "OCUPADA"
-                                    })
+                                            "octet": h_octet,
+                                            "ip": h_ip,
+                                            "id": service_id,
+                                            "customer_name": customer_name,
+                                            "row": host_r,
+                                            "status": "OCUPADA"
+                                   })
 
                             # Default gateway if not explicitly labelled with 'GW'
                             # Si no se rotuló, el gateway es la primera IP útil y

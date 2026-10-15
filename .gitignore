@@ -10,3 +10,7 @@ venv/
 .DS_Store
 data/inventario_activo.xlsx
 *.log
+
+# Firebase Credentials
+firebase/serviceAccountKey.json
+serviceAccountKey.json

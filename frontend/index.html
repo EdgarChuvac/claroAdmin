@@ -93,25 +93,61 @@
 
     <!-- TAB: SERVICIO -->
     <section class="tab-content" id="tab-servicio">
+
+        <div class="card">
+            <div class="card-header">
+                <h3>Topología de Transporte</h3>
+            </div>
+
+    <div class="card-body grid-4">
       <div class="card">
         <div class="card-header"><h3>Especificaciones Técnicas del Servicio</h3></div>
-        <div class="card-body grid-2">
-          <div class="form-group">
-            <label>Medio de Transmisión:</label>
-            <select id="s-medio">
-              <option value="FIBRA" selected>FIBRA ÓPTICA</option>
-              <option value="RADIO">RADIOENLACE</option>
-              <option value="GPON">G-PON</option>
-            </select>
+  
+  <div class="card-body grid-2">
+
+    <div class="form-group">
+        <label>Región:</label>
+        <select id="s-region">
+            <option value="">Seleccione Región</option>
+            <option value="METROPOLITANA">METROPOLITANA</option>
+            <option value="DEPARTAMENTAL">DEPARTAMENTAL</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Isla / Central:</label>
+        <select id="eq-isla"
+                onchange="onIslaChange()"
+                required>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label>Medio de Transmisión:</label>
+        <select id="s-medio" onchange="toggleChasis()">
+           <option value="FIBRA" selected>FIBRA ÓPTICA</option>
+           <option value="RADIO">RADIOENLACE</option>
+           <option value="GPON">G-PON</option>
+           </select>
+    </div>
+            
+    <div class="form-group">
+              <label>Equipo CPE Extremo Cliente:</label>
+              <input type="text" id="s-equipo" value="">
+    </div>
+
+            <div class="form-group" id="grp-chasis">
+                <label>Chasis:</label>
+                <select id="s-chasis">
+                <option value="">SIN CHASIS</option>
+                </select>
+            </div>
+
+              <div class="form-group col-span-2">
+              <label>Observaciones de Ingeniería (opcional):</label>
+              <input type="text" id="s-observaciones" value="">
           </div>
-          <div class="form-group">
-            <label>Equipo CPE Extremo Cliente:</label>
-            <input type="text" id="s-equipo" value="">
-          </div>
-          <div class="form-group col-span-2">
-            <label>Observaciones de Ingeniería (opcional):</label>
-            <input type="text" id="s-observaciones" value="">
-          </div>
+
         </div>
       </div>
     </section>
@@ -122,14 +158,34 @@
       <div class="card">
         <div class="card-header"><h3>Isla, tipo de servicio y VLAN</h3></div>
         <div class="card-body grid-3">
-          <div class="form-group">
-            <label>1. Isla / Central:</label>
-            <select id="eq-isla" onchange="onIslaChange()" required></select>
-          </div>
+
           <div class="form-group">
             <label>2. Tipo de Servicio:</label>
             <select id="p-titulo" class="service-select" onchange="onServiceTypeChange(this.value)"></select>
             <small id="service-template-warning" class="field-warning" hidden>⚠ Plantilla pendiente de validar por Ingeniería: revise VRF y RD.</small>
+          </div>
+          <div class="form-group"
+     id="internet-region-container"
+     style="display:none;">
+
+    <label>3. Región Internet:</label>
+
+    <select id="internet-region"
+            onchange="fillVlanSelect()">
+
+        <option value="">
+            Seleccione región
+        </option>
+
+        <option value="METRO">
+            Metropolitana
+        </option>
+
+        <option value="DEPTO">
+            Departamental
+        </option>
+
+    </select>
           </div>
           <div class="form-group">
             <label>3. Número de VLAN:</label>

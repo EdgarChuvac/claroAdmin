@@ -22,6 +22,7 @@ class ReservationRequest(BaseModel):
 
     ips: list[str] = Field(min_length=1, max_length=64)
     service_id: str = Field(min_length=1, max_length=100)
+    cliente: str = Field(default="", max_length=300)
     purpose: Literal["WAN", "LAN", "ADICIONAL"] = "WAN"
 
     @field_validator("service_id")

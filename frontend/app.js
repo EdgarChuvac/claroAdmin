@@ -17,6 +17,7 @@ const state = {
   sinFactibilidad: false,
   islaSegments: [],     // subredes de la isla seleccionada (sin detalle de IPs)
   vlanCatalog: [],      // datos guardados (RD, VRF, descripciones) de las VLAN de la isla
+  vlanDescriptions: {},
   currentVlan: "",      // "" = sin elegir, "*" = todas
   inventoryRequestId: 0,
   blocksRequestId: 0,
@@ -50,12 +51,24 @@ function el(tag, attrs = {}, ...children) {
 }
 
 function formatDate(iso) {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString("es-GT", { dateStyle: "short", timeStyle: "short" });
+    if (!iso) return "";
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return iso;
+    return date.toLocaleString("es-GT", { 
+        dateStyle: "short", 
+        timeStyle: "short"
+ });
 }
 
+window.toggleChasis = function () {
+    const medio = document.getElementById("s-medio");
+    const chasis = document.getElementById("grp-chasis");
+
+    if (!medio || !chasis) return;
+
+    chasis.style.display =
+        medio.value === "RADIO" ? "none" : "block";
+};
 // ===========================================================================
 // API con trazabilidad
 // ===========================================================================
@@ -191,12 +204,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     markFormatStale();
     updateGenerationAvailability();
   });
-  document.body.addEventListener("change", event => {
-    if (event.target.closest(".modal-overlay")) return;
-    updateGenerationAvailability();
-  });
 
   await loadConfig();
+      toggleChasis();
+
   updateGenerationAvailability();
   await loadInventory();
   loadAltasHistory();
@@ -321,6 +332,25 @@ async function loadConfig() {
     return;
   }
   const cfg = state.config;
+
+  console.log("CHASIS RECIBIDOS:", cfg.chasis);
+
+  const chasisSelect = $("s-chasis");
+
+  chasisSelect.innerHTML = "";
+
+  chasisSelect.add(
+    new Option("SIN CHASIS", "")
+  );
+
+(cfg.chasis || []).forEach(ch => {
+    console.log("AGREGANDO:", ch);
+
+    chasisSelect.add(
+        new Option(ch.nombre, ch.id)
+    );
+});
+
   $("footer-version").textContent = `Claro CENAM Service Manager v${cfg.version} · datos: ${cfg.backend === "memory" ? "memoria (demo)" : "Firebase"}`;
   $("import-max-mb").textContent = cfg.max_upload_mb;
 
@@ -354,7 +384,9 @@ function loadCentral(centralId) {
 }
 
 function currentTemplate() {
-  return state.config ? state.config.services[$("p-titulo").value] : null;
+  return state.config 
+   ? state.config.services[$("p-titulo").value] 
+   : null;
 }
 
 function applyServiceTemplate(typeName) {
@@ -371,14 +403,38 @@ function applyServiceTemplate(typeName) {
 }
 
 function onServiceTypeChange(typeName) {
-  const factArea = $("p-factibilidad-bloque");
-  if (factArea.value) {
-    const tpl = state.config && state.config.services[typeName];
-    const title = tpl ? tpl.banner : typeName;
-    factArea.value = factArea.value.replace(/TITULO:\s*\*\*\*[^*]+\*\*\*/i, `TITULO:\t***${title}***`);
-  }
-  applyServiceTemplate(typeName);
-  markFormatStale();
+    const factArea = $("p-factibilidad-bloque");
+
+    if (factArea.value) {
+        const tpl = state.config && state.config.services[typeName];
+        const title = tpl ? tpl.banner : typeName;
+
+        factArea.value = factArea.value.replace(
+            /(TITULO:\s*\*\*\*)[^*]+(\*\*\*)/i,
+            `TITULO:\t***${title}***`
+        );
+    }
+
+    applyServiceTemplate(typeName);
+
+    const regionBox = $("internet-region-container");
+
+if (typeName === "INTERNET") {
+
+    regionBox.style.display = "";
+
+} else {
+
+    regionBox.style.display = "none";
+
+    if ($("internet-region")) {
+        $("internet-region").value = "";
+    }
+}
+
+fillVlanSelect();
+
+markFormatStale();
 }
 
 // ===========================================================================
@@ -467,10 +523,67 @@ function fillVlanSelect(preferred = "") {
     free[seg.vlan] = (free[seg.vlan] || 0) + (seg.available_count || 0);
   }
   for (const v of state.vlanCatalog) if (!(v.vlan in free)) free[v.vlan] = null;
-  const vlans = Object.keys(free).sort((a, b) => Number(a) - Number(b));
+  
+let vlans = Object.keys(free);
+
+const tpl = currentTemplate();
+
+const regionInternet =
+    $("internet-region")
+        ? $("internet-region").value
+        : "";
+
+if (
+    tpl &&
+    tpl.label &&
+    tpl.label.toUpperCase() === "INTERNET"
+) {
+
+    if (regionInternet === "METRO") {
+
+        // Solo Metropolitana
+        vlans = vlans.filter(
+            v => v === "3740"
+        );
+
+    } else if (regionInternet === "DEPTO") {
+
+        // Solo Departamental
+        vlans = vlans.filter(
+            v => v === "3750"
+        );
+
+    } else {
+
+        // Si no ha elegido región, no mostrar VLAN
+        vlans = [];
+    }
+
+} else {
+
+    // DATOS y demás servicios
+    // Ocultar VLAN reservadas para Internet
+    vlans = vlans.filter(
+        v => !["3740", "3750"].includes(v)
+    );
+}
+
   const options = [new Option(state.islaSegments.length ? "Seleccione la VLAN" : "Sin segmentos en esta isla", "")];
   vlans.forEach(v => options.push(new Option(free[v] === null ? `VLAN ${v} (sin IPs cargadas)` : `VLAN ${v} — ${free[v]} libres`, v)));
-  if (state.islaSegments.length) options.push(new Option("Todas las VLAN de la isla", "*"));
+  
+  if (
+    state.islaSegments.length &&
+    !(
+        tpl &&
+        tpl.label &&
+        tpl.label.toUpperCase() === "INTERNET"
+    )
+) {
+    options.push(
+        new Option("Todas las VLAN de la isla", "*")
+    );
+}
+
   select.replaceChildren(...options);
   select.value = [...select.options].some(o => o.value === preferred) ? preferred : "";
 }
@@ -640,9 +753,11 @@ function assignFirstFreeIP() {
 }
 
 function renderAssignedTable(block) {
+  console.log("ASSIGNED:", block.assigned_ips);
+
   const rows = block.assigned_ips.map(item => el("tr", {},
     el("td", { class: "mono" }, item.ip),
-    el("td", {}, item.id || ""),
+    el("td", {}, `${item.id || ""} ${item.cliente || ""}`.trim()),
     el("td", {}, item.assigned_by || ""),
     el("td", {}, formatDate(item.assigned_at)),
     el("td", {}, el("button", { type: "button", class: "btn-danger-sm", onclick: () => openReleaseModal(item) }, "Liberar"))
@@ -685,14 +800,23 @@ async function confirmIPReservation() {
   const button = $("btn-reserve-ip");
   button.disabled = true;
   try {
-    const result = await api("/api/reservations", { method: "POST", json: { ips, service_id: serviceId, purpose: "WAN" } });
+    const result = await api("/api/reservations", 
+      { 
+      method: "POST", 
+      json: { 
+          ips, 
+          service_id: serviceId,
+          cliente: $("p-cliente").value.trim(),
+          purpose: "WAN" 
+       } 
+    });
     ips.forEach(ip => state.reservedForService.set(ip, serviceId));
     toast(result.message, "success", result.operation_id);
     await refreshInventorySelection();
     // conservar la selección reservada en el formulario
     $("eq-ip-wan").value = ips[0];
     $("eq-ips-adicionales").value = ips.slice(1).join(", ");
-    $("eq-red-wan").value = block.network_ip;
+    $("a").value = block.network_ip;
     $("eq-gw-wan").value = block.gateway_ip || "";
     state.selectedFreeIPs = [];
     for (const option of $("ipam-free-select").options) option.selected = false;
@@ -1021,12 +1145,42 @@ function markFormatStale() {
   status.textContent = "Hay cambios sin registrar. Pulse “Registrar alta” para guardar la nueva versión antes de copiarla.";
 }
 
-function collectFormData() {
+  async function buildRouteFromFirebase() {
+
+      const chasisSelect = document.getElementById("s-chasis");
+
+      if (!chasisSelect) {
+         console.error("No se encontró s-chasis");
+         return getEquipmentRowsData();
+      }
+
+      const chasisId =
+         chasisSelect.selectedOptions[0]?.value ||
+         chasisSelect.options[chasisSelect.selectedIndex]?.value ||
+         "";
+
+      console.warn("INDEX:", chasisSelect.selectedIndex);
+      console.warn("ID:", chasisId);
+      console.warn("TEXT:", chasisSelect.selectedOptions[0]?.text);
+
+      if (!chasisId) {
+          return getEquipmentRowsData();
+     }
+
+       return getEquipmentRowsData();
+  }
+
+
+  async function collectFormData() {  
+    
   let fecha = $("p-fecha").value;
-  const p = fecha.split("-");
-  if (p.length === 3 && p[0].length === 4) fecha = `${p[2]}-${p[1]}-${p[0]}`;
-  const tpl = currentTemplate();
-  return {
+  
+    const p = fecha.split("-");
+    if (p.length === 3 && p[0].length === 4) fecha = `${p[2]}-${p[1]}-${p[0]}`;
+    const tpl = currentTemplate();
+  
+    return {
+  
     titulo: $("p-titulo").value,
     id_servicio: $("p-id-servicio").value.trim(),
     cliente: $("p-cliente").value.trim(),
@@ -1050,7 +1204,7 @@ function collectFormData() {
     desc_vlan: $("eq-desc-vlan").value.trim(),
     ip_publica: tpl && tpl.ip_publica ? $("eq-ip-publica").value.trim() : "",
     loopback_auto: $("eq-loopback-auto").checked,
-    equipos_claro: getEquipmentRowsData(),
+    equipos_claro: await buildRouteFromFirebase(),
     equipo_raisecom: $("m-raisecom").value,
     obs_medio: $("m-obs-medio").value,
   };
@@ -1072,7 +1226,14 @@ async function updateGeneratedFormat() {
   const requestId = ++state.formatRequestId;
   const output = $("output-format-textarea");
   try {
-    const data = await api("/api/generate-format", { method: "POST", json: { data: collectFormData() } });
+
+    const formData = await collectFormData();
+
+    const data = await api("/api/generate-format", { 
+       method: "POST", 
+       json: { data: formData }
+      });
+
     if (requestId !== state.formatRequestId) return;
     output.value = data.formatted_text;
     state.registeredAlta = null;
