@@ -41,14 +41,14 @@ def build_route_string(
     for eq in sorted(equipos, key=_equipment_order):
         name = " ".join(
             p for p in (
-                _text(eq.get(k)) 
+                _text(eq.get(k))
                 for k in ("rol", "marca", "modelo", "hostname")
-            ) 
+            )
             if p
         )
 
         ip = _text(eq.get("ip_admon"))
-        
+
         if ip:
             name = f"{name} ({ip})".strip()
         if name:
@@ -81,7 +81,6 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
     fecha = _text(data.get("fecha"))
     id_servicio = _text(data.get("id_servicio"))
     observaciones = _text(data.get("observaciones"))
-    desc_vlan = _text(data.get("desc_vlan"))
 
     factibilidad_bloque = _text(data.get("factibilidad_bloque"))
     sin_factibilidad = bool(data.get("sin_factibilidad")) and not factibilidad_bloque

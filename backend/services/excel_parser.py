@@ -239,17 +239,17 @@ class ExcelIPAMReader:
                                     })
                                 else:
                                     # Assigned to client ID
-                                    
+
                                     parts = h_str.split(" ", 1)
 
                                     service_id = parts[0].strip()
                                     customer_name = parts[1].strip() if len(parts) > 1 else ""
 
-                               
+
                                     print("DEBUG:", h_str)
                                     print("SERVICE:", service_id)
                                     print("CLIENTE:", customer_name)
-                                    
+
                                     block.assigned_ips.append({
                                             "octet": h_octet,
                                             "ip": h_ip,

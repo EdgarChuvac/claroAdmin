@@ -509,11 +509,11 @@ class InventoryRepository:
             .collection("METROPOLITANA")
             .document("MONTE VERDE")
             .collection("CHASIS")
-            .stream()   
-       
+            .stream()
+
         )
         result = []
-        
+
         for snap in docs:
             data = snap.to_dict()
 
@@ -528,7 +528,7 @@ class InventoryRepository:
 
             result.append({
                 "id": snap.id,
-                "nombre": data.get("nombre", 
+                "nombre": data.get("nombre",
         snap.id),
             })
 
@@ -536,7 +536,7 @@ class InventoryRepository:
 
         return sorted(result, key=lambda x:
         x["nombre"])
-    
+
     def get_blocks(self, sheet: str) -> list[dict[str, Any]]:
         if not self.col("inventory_sheets").document(sheet).get().exists:
             raise NotFoundError("La hoja solicitada no existe en el inventario.")
@@ -556,14 +556,14 @@ class InventoryRepository:
             assigned = [
                 {
                     "octet": d["octet"],
-                    "ip": d["ip"], 
+                    "ip": d["ip"],
                     "id": d.get("service_id"),
                     "cliente": d.get("cliente", ""),
-                    "status": STATUS_USED, 
+                    "status": STATUS_USED,
                     "assigned_by": d.get("assigned_by"),
                     "assigned_at": d.get("assigned_at"),
                     "assigned_operation_id": d.get("assigned_operation_id"),
-                
+
                 }
                 for d in ips if d.get("status") == STATUS_USED
             ]
@@ -643,17 +643,8 @@ class InventoryRepository:
                 "updated_at": utcnow(),
             })
 
-    def reserve(
-            self, 
-            ips: list[str], 
-            service_id: str,
-            cliente: str, 
-            operator: str, 
-            operation_id: str,
-            purpose: str = "WAN"
-    
-    )       -> list[dict[str, Any]]:
-        
+    def reserve(self, ips: list[str], service_id: str, operator: str, operation_id: str,
+                purpose: str = "WAN", cliente: str = "") -> list[dict[str, Any]]:
         ips = normalize_ips(ips)
         refs = {ip: self.col("ip_addresses").document(ip) for ip in ips}
 
