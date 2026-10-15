@@ -459,7 +459,7 @@ function applyServiceTemplate(typeName) {
   fillVlanData();
 }
 
-function onServiceTypeChange(typeName) {
+async function onServiceTypeChange(typeName) {
     const factArea = $("p-factibilidad-bloque");
 
     if (factArea.value) {
@@ -473,8 +473,10 @@ function onServiceTypeChange(typeName) {
     }
 
     applyServiceTemplate(typeName);
+    // INTERNET trae la VLAN de Internet de la región elegida en la pestaña Servicio.
     fillVlanSelect();
     markFormatStale();
+    await onVlanChange();
 }
 
 // ===========================================================================
@@ -586,15 +588,20 @@ function fillVlanSelect(preferred = "") {
   const regiones = (state.config && state.config.regiones) || {};
   const internetVlans = new Set(Object.values(regiones).map(r => r.vlan_internet).filter(Boolean));
   const region = regiones[$("s-region").value];
+  const vlanRegion = esInternet && region ? region.vlan_internet || "" : "";
   let vlans = Object.keys(free);
   vlans = esInternet
-    ? vlans.filter(v => region && v === region.vlan_internet)
+    ? (vlanRegion ? [vlanRegion] : [])
     : vlans.filter(v => !internetVlans.has(v));
 
   const options = [new Option(state.islaSegments.length ? "Seleccione la VLAN" : "Sin segmentos en esta isla", "")];
-  vlans.forEach(v => options.push(new Option(free[v] === null ? `VLAN ${v} (sin IPs cargadas)` : `VLAN ${v} — ${free[v]} libres`, v)));
-  
-  if (esInternet && !region) options[0] = new Option("Seleccione primero la región", "");
+  vlans.forEach(v => options.push(new Option(free[v] === undefined || free[v] === null
+    ? `VLAN ${v} (sin IPs cargadas en esta isla)` : `VLAN ${v} — ${free[v]} libres`, v)));
+
+  if (esInternet && !region) options[0] = new Option("Seleccione primero la región en la pestaña Servicio", "");
+  if (esInternet && region && !vlanRegion) options[0] = new Option(`La región ${region.label} no tiene VLAN de Internet configurada`, "");
+  // Con INTERNET la VLAN la define la región: se selecciona sola.
+  if (vlanRegion && !preferred) preferred = vlanRegion;
   if (state.islaSegments.length && !esInternet) options.push(new Option("Todas las VLAN de la isla", "*"));
 
   select.replaceChildren(...options);
@@ -619,11 +626,12 @@ async function onVlanChange({ keepSelection = false } = {}) {
     return;
   }
   const previous = keepSelection ? sheetSelect.value : "";
-  sheetSelect.replaceChildren(...sheets.map(sheet => {
-    const libres = segments.filter(s => s.sheet === sheet).reduce((acc, s) => acc + (s.available_count || 0), 0);
-    return new Option(`${sheet} (${libres} libres)`, sheet);
-  }));
-  sheetSelect.value = sheets.includes(previous) ? previous : sheets[0];
+  const libres = {};
+  for (const s of segments) libres[s.sheet] = (libres[s.sheet] || 0) + (s.available_count || 0);
+  sheetSelect.replaceChildren(...sheets.map(sheet =>
+    new Option(libres[sheet] ? `${sheet} (${libres[sheet]} libres)` : `${sheet} (sin IPs libres)`, sheet)));
+  // Por defecto, el primer segmento /24 que tenga IPs libres en la VLAN.
+  sheetSelect.value = sheets.includes(previous) ? previous : sheets.find(sheet => libres[sheet] > 0) || sheets[0];
   await loadBlocksForSheet(sheetSelect.value);
 }
 
