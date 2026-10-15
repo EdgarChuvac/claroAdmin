@@ -454,6 +454,49 @@ class InventoryRepository:
     # ------------------------------------------------------------------
     # Consultas de inventario
     # ------------------------------------------------------------------
+    def list_islas_region(self, region: str) -> list[str]:
+        """Consulta los nombres de ISLAS filtrando por el campo region."""
+        docs = self._where("ISLAS", "region", "==", region).stream()
+        nombres = set()
+        for snap in docs:
+            nombre = snap.to_dict().get("NOMBRE")
+            if isinstance(nombre, str) and nombre.strip():
+                nombres.add(nombre.strip())
+        return sorted(nombres)
+
+    def list_chasis_isla(self, region: str, isla: str) -> list[dict[str, Any]]:
+        """Resuelve chasis_diponibles de ISLAS a documentos EQUIPO_CHASIS."""
+        chasis_ids = set()
+        encontrada = False
+        for snap in self._where("ISLAS", "region", "==", region).stream():
+            data = snap.to_dict()
+            if str(data.get("NOMBRE", "")).strip() != isla:
+                continue
+            encontrada = True
+            disponibles = data.get("chasis_diponibles", [])
+            if not isinstance(disponibles, list):
+                disponibles = [disponibles]
+            for value in disponibles:
+                if value is None or value == "":
+                    continue
+                if isinstance(value, bool) or not isinstance(value, (str, int)):
+                    raise InventoryError("El campo chasis_diponibles debe contener IDs de documentos de EQUIPO_CHASIS.")
+                chasis_id = str(value).strip()
+                if not chasis_id:
+                    continue
+                if "/" in chasis_id:
+                    raise InventoryError("ID de chasis inválido en chasis_diponibles.")
+                chasis_ids.add(chasis_id)
+        if not encontrada:
+            raise NotFoundError("La isla seleccionada no existe en la región indicada.")
+        result = []
+        for chasis_id in sorted(chasis_ids):
+            snap = self.col("EQUIPO_CHASIS").document(chasis_id).get()
+            if not snap.exists:
+                raise NotFoundError(f"El chasis {chasis_id} configurado para la isla no existe en EQUIPO_CHASIS.")
+            result.append({**snap.to_dict(), "id": snap.id})
+        return sorted(result, key=lambda ch: str(ch.get("nombre") or ch["id"]))
+
     def list_sheets(self) -> list[dict[str, Any]]:
         sheets = [snap.to_dict() for snap in self.col("inventory_sheets").stream()]
         return sorted(sheets, key=lambda s: ip_sort_key(s.get("sheet", "")))

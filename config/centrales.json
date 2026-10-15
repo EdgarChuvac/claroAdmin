@@ -16,7 +16,7 @@
     {
       "id": "monte-verde",
       "nombre": "Central Monte Verde",
-      "isla": "MONTE VERDE",
+      "isla": "MONTE VERDffsdfkl/ds'flksd'kjlE",
       "demo": true,
       "equipos": [
         {"no": "1", "rol": "PE", "marca": "HUAWEI", "modelo": "NE40E-X8A", "hostname": "PE-DEMO-03", "ip_admon": "198.51.100.10", "int_in": "", "int_out": ""},

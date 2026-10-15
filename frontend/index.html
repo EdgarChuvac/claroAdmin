@@ -64,7 +64,7 @@
           </div>
           <div class="form-group">
             <label>Número de Teléfono (Diseñador):</label>
-            <input type="tel" id="p-tel-disenador" value="">
+            <input type="number" id="p-tel-disenador" value="" maxlength="8">
           </div>
           <div class="form-group">
             <label>Fecha de Diseño (Calendario):</label>
@@ -107,7 +107,7 @@
 
     <div class="form-group">
         <label>Región:</label>
-        <select id="s-region">
+        <select id="s-region" onchange="onRegionChange()">
             <option value="">Seleccione Región</option>
             <option value="METROPOLITANA">METROPOLITANA</option>
             <option value="DEPARTAMENTAL">DEPARTAMENTAL</option>
@@ -117,7 +117,7 @@
     <div class="form-group">
         <label>Isla / Central:</label>
         <select id="eq-isla"
-                onchange="onIslaChange()"
+                onchange="onIslaChange({ resetMedio: true })"
                 required>
         </select>
     </div>
@@ -125,7 +125,8 @@
     <div class="form-group">
         <label>Medio de Transmisión:</label>
         <select id="s-medio" onchange="toggleChasis()">
-           <option value="FIBRA" selected>FIBRA ÓPTICA</option>
+           <option value="" selected>Seleccione el medio de transmisión</option>
+           <option value="FIBRA">FIBRA ÓPTICA</option>
            <option value="RADIO">RADIOENLACE</option>
            <option value="GPON">G-PON</option>
            </select>
