@@ -15,3 +15,8 @@ data/inventario_activo.xlsx
 firebase/serviceAccountKey.json
 serviceAccountKey.json
 config.json
+
+# Datos reales de la operación: nunca en el repositorio (es público)
+DASE/
+Documentos/
+config/vlan-descriptions.json

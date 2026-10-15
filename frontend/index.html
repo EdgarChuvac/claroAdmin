@@ -106,30 +106,22 @@
   <div class="card-body grid-2">
 
     <div class="form-group">
-        <label>Región:</label>
-        <select id="s-region" onchange="onRegionChange()">
-            <option value="">Seleccione Región</option>
-            <option value="METROPOLITANA">METROPOLITANA</option>
-            <option value="DEPARTAMENTAL">DEPARTAMENTAL</option>
+        <label for="s-region">Región:</label>
+        <select id="s-region" onchange="onRegionChange()" required>
+            <option value="">Seleccione la región</option>
         </select>
     </div>
 
     <div class="form-group">
-        <label>Isla / Central:</label>
-        <select id="eq-isla"
-                onchange="onIslaChange({ resetMedio: true })"
-                required>
+        <label for="eq-isla">Isla / Central:</label>
+        <select id="eq-isla" onchange="onIslaChange()" required>
         </select>
     </div>
 
     <div class="form-group">
-        <label>Medio de Transmisión:</label>
-        <select id="s-medio" onchange="toggleChasis()">
-           <option value="" selected>Seleccione el medio de transmisión</option>
-           <option value="FIBRA">FIBRA ÓPTICA</option>
-           <option value="RADIO">RADIOENLACE</option>
-           <option value="GPON">G-PON</option>
-           </select>
+        <label for="s-medio">Medio de Transmisión:</label>
+        <select id="s-medio" onchange="onMedioChange()" required>
+        </select>
     </div>
             
     <div class="form-group">
@@ -138,10 +130,18 @@
     </div>
 
             <div class="form-group" id="grp-chasis">
-                <label>Chasis:</label>
-                <select id="s-chasis">
+                <label for="s-chasis">Chasis:</label>
+                <select id="s-chasis" onchange="onChasisChange()">
                 <option value="">SIN CHASIS</option>
                 </select>
+                <div class="grid-2 mt-5">
+                  <select id="s-chasis-slot" onchange="markFormatStale()" aria-label="Slot del chasis" disabled>
+                    <option value="">Slot</option>
+                  </select>
+                  <select id="s-chasis-puerto" onchange="markFormatStale()" aria-label="Puerto del chasis" disabled>
+                    <option value="">Puerto</option>
+                  </select>
+                </div>
             </div>
 
               <div class="form-group col-span-2">
@@ -165,31 +165,8 @@
             <select id="p-titulo" class="service-select" onchange="onServiceTypeChange(this.value)"></select>
             <small id="service-template-warning" class="field-warning" hidden>⚠ Plantilla pendiente de validar por Ingeniería: revise VRF y RD.</small>
           </div>
-          <div class="form-group"
-     id="internet-region-container"
-     style="display:none;">
-
-    <label>3. Región Internet:</label>
-
-    <select id="internet-region"
-            onchange="fillVlanSelect()">
-
-        <option value="">
-            Seleccione región
-        </option>
-
-        <option value="METRO">
-            Metropolitana
-        </option>
-
-        <option value="DEPTO">
-            Departamental
-        </option>
-
-    </select>
-          </div>
           <div class="form-group">
-            <label>3. Número de VLAN:</label>
+            <label for="eq-vlan-select">3. Número de VLAN:</label>
             <select id="eq-vlan-select" onchange="onVlanChange()"></select>
           </div>
         </div>
@@ -361,7 +338,7 @@
         <div class="card">
           <div class="card-header"><h3>Buscar por ID de servicio</h3></div>
           <div class="card-body">
-            <form class="input-with-button" onsubmit="searchService(event)">
+            <form id="search-service-form" class="input-with-button" onsubmit="searchService(event)">
               <input type="text" id="search-service-id" placeholder="ID del servicio" maxlength="100" aria-label="ID del servicio a buscar">
               <button type="submit" class="btn btn-primary">Buscar</button>
             </form>
@@ -484,6 +461,29 @@
   </div>
 
   <!-- MODAL: LIBERAR IP -->
+  <div id="baja-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="baja-modal-title" hidden>
+    <form class="modal-container modal-sm" onsubmit="submitBaja(event)">
+      <div class="modal-header">
+        <div class="modal-title"><span aria-hidden="true">⛔</span><h3 id="baja-modal-title">Dar de baja el servicio</h3></div>
+        <button type="button" class="btn-modal-close" onclick="closeModal('baja-modal')" title="Cerrar">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-help" id="baja-summary"></p>
+        <div class="form-group">
+          <label for="baja-reason">Motivo de la baja:</label>
+          <textarea id="baja-reason" rows="2" minlength="3" maxlength="300" required placeholder="Ej.: cancelación del cliente"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <span></span>
+        <div class="modal-buttons">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('baja-modal')">Cancelar</button>
+          <button type="submit" class="btn btn-danger">Dar de baja</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
   <div id="release-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="release-modal-title" hidden>
     <form class="modal-container modal-sm" onsubmit="submitRelease(event)">
       <div class="modal-header">

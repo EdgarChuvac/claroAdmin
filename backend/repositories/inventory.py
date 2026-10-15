@@ -22,6 +22,10 @@ Colecciones (todas con el prefijo ``FIRESTORE_COLLECTION_PREFIX``):
     Datos de red por VLAN (RD, VRF y descripciones) para autocompletar el alta.
 ``loopbacks/{ip}``
     Loopbacks /32 asignadas automáticamente (pool 10.212.100.1-254 por defecto).
+``islas/{slug}``
+    Topología: isla/central con su región (``METROPOLITANA``, ``DEPARTAMENTAL``).
+``chasis/{id}``
+    Topología: chasis de transmisión de una isla (``isla_id`` → ``islas``), con slots y puertos.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from ipaddress import IPv4Address
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from ..core.errors import ConflictError, InventoryError, NotFoundError
 from ..db.firebase_client import FirestoreHandle
@@ -45,6 +49,9 @@ logger = logging.getLogger(__name__)
 STATUS_FREE = "DISPONIBLE"
 STATUS_USED = "OCUPADA"
 STATUS_GATEWAY = "GATEWAY"
+
+ALTA_ACTIVA = "ACTIVA"
+ALTA_BAJA = "BAJA"
 
 MAX_IPS_PER_RESERVATION = 64
 BATCH_LIMIT = 450  # margen bajo el límite de 500 operaciones por lote
@@ -86,9 +93,21 @@ def normalize_isla(value: str | None) -> str:
     return " ".join((value or "").split()).upper()[:60]
 
 
+def isla_doc_id(isla: str) -> str:
+    """ID de documento de una isla: ``MONTE VERDE`` -> ``MONTE-VERDE`` (sin ``/``)."""
+    return re.sub(r"[^A-Z0-9]+", "-", normalize_isla(isla)).strip("-") or "SIN-ISLA"
+
+
 def vlan_doc_id(isla: str, vlan: str) -> str:
-    slug = re.sub(r"[^A-Z0-9]+", "-", normalize_isla(isla)).strip("-") or "SIN-ISLA"
-    return f"{slug}_{vlan}"
+    return f"{isla_doc_id(isla)}_{vlan}"
+
+
+def _text_list(values: Any) -> list[str]:
+    if values is None or values == "":
+        return []
+    if not isinstance(values, list):
+        values = [values]
+    return [str(v).strip() for v in values if str(v).strip()]
 
 
 def new_readable_id(prefix: str) -> str:
@@ -194,6 +213,7 @@ class InventoryRepository:
             docs[item["ip"]] = {
                 **base, "ip": item["ip"], "octet": item["octet"],
                 "status": STATUS_USED, "service_id": item["id"],
+                "cliente": item.get("customer_name", ""),
                 "assigned_by": "importación excel", "assigned_at": now,
                 "assigned_operation_id": None,
             }
@@ -454,88 +474,9 @@ class InventoryRepository:
     # ------------------------------------------------------------------
     # Consultas de inventario
     # ------------------------------------------------------------------
-    def list_islas_region(self, region: str) -> list[str]:
-        """Consulta los nombres de ISLAS filtrando por el campo region."""
-        docs = self._where("ISLAS", "region", "==", region).stream()
-        nombres = set()
-        for snap in docs:
-            nombre = snap.to_dict().get("NOMBRE")
-            if isinstance(nombre, str) and nombre.strip():
-                nombres.add(nombre.strip())
-        return sorted(nombres)
-
-    def list_chasis_isla(self, region: str, isla: str) -> list[dict[str, Any]]:
-        """Resuelve chasis_diponibles de ISLAS a documentos EQUIPO_CHASIS."""
-        chasis_ids = set()
-        encontrada = False
-        for snap in self._where("ISLAS", "region", "==", region).stream():
-            data = snap.to_dict()
-            if str(data.get("NOMBRE", "")).strip() != isla:
-                continue
-            encontrada = True
-            disponibles = data.get("chasis_diponibles", [])
-            if not isinstance(disponibles, list):
-                disponibles = [disponibles]
-            for value in disponibles:
-                if value is None or value == "":
-                    continue
-                if isinstance(value, bool) or not isinstance(value, (str, int)):
-                    raise InventoryError("El campo chasis_diponibles debe contener IDs de documentos de EQUIPO_CHASIS.")
-                chasis_id = str(value).strip()
-                if not chasis_id:
-                    continue
-                if "/" in chasis_id:
-                    raise InventoryError("ID de chasis inválido en chasis_diponibles.")
-                chasis_ids.add(chasis_id)
-        if not encontrada:
-            raise NotFoundError("La isla seleccionada no existe en la región indicada.")
-        result = []
-        for chasis_id in sorted(chasis_ids):
-            snap = self.col("EQUIPO_CHASIS").document(chasis_id).get()
-            if not snap.exists:
-                raise NotFoundError(f"El chasis {chasis_id} configurado para la isla no existe en EQUIPO_CHASIS.")
-            result.append({**snap.to_dict(), "id": snap.id})
-        return sorted(result, key=lambda ch: str(ch.get("nombre") or ch["id"]))
-
     def list_sheets(self) -> list[dict[str, Any]]:
         sheets = [snap.to_dict() for snap in self.col("inventory_sheets").stream()]
         return sorted(sheets, key=lambda s: ip_sort_key(s.get("sheet", "")))
-
-    def list_chasis(self) -> list[dict[str, Any]]:
-        docs = (
-            self.client
-            .collection("Equipos_Transmision")
-            .document("REGION")
-            .collection("METROPOLITANA")
-            .document("MONTE VERDE")
-            .collection("CHASIS")
-            .stream()
-
-        )
-        result = []
-
-        for snap in docs:
-            data = snap.to_dict()
-
-            print(
-                "CHASIS ->",
-                snap.id,
-                "| nombre =",
-                data.get("nombre"),
-                "| tipo =",
-                data.get("tipo")
-           )
-
-            result.append({
-                "id": snap.id,
-                "nombre": data.get("nombre",
-        snap.id),
-            })
-
-        print("CHASIS ENCONTRADOS:", result)
-
-        return sorted(result, key=lambda x:
-        x["nombre"])
 
     def get_blocks(self, sheet: str) -> list[dict[str, Any]]:
         if not self.col("inventory_sheets").document(sheet).get().exists:
@@ -687,6 +628,25 @@ class InventoryRepository:
         for ref, update, _data in pending:
             transaction.update(ref, update)
 
+    @staticmethod
+    def _release_update(data: dict[str, Any], operator: str, operation_id: str, reason: str,
+                        now: datetime) -> dict[str, Any]:
+        return {
+            "status": STATUS_FREE,
+            "service_id": None,
+            "cliente": None,
+            "purpose": None,
+            "assigned_by": None,
+            "assigned_at": None,
+            "assigned_operation_id": None,
+            "released_by": operator,
+            "released_at": now,
+            "released_operation_id": operation_id,
+            "released_service_id": data.get("service_id"),
+            "release_reason": reason,
+            "updated_at": now,
+        }
+
     def release(self, ips: list[str], service_id: str, operator: str, operation_id: str,
                 reason: str) -> list[dict[str, Any]]:
         ips = normalize_ips(ips)
@@ -710,20 +670,7 @@ class InventoryRepository:
             pending = []
             for ip, snap in snaps.items():
                 data = snap.to_dict()
-                pending.append((refs[ip], {
-                    "status": STATUS_FREE,
-                    "service_id": None,
-                    "purpose": None,
-                    "assigned_by": None,
-                    "assigned_at": None,
-                    "assigned_operation_id": None,
-                    "released_by": operator,
-                    "released_at": now,
-                    "released_operation_id": operation_id,
-                    "released_service_id": data.get("service_id"),
-                    "release_reason": reason,
-                    "updated_at": now,
-                }, data))
+                pending.append((refs[ip], self._release_update(data, operator, operation_id, reason, now), data))
             self._adjust_counters_reads_then_writes(transaction, deltas, pending)
             return [{"ip": data["ip"], "previous_service_id": data.get("service_id")} for _r, _u, data in pending]
 
@@ -733,24 +680,58 @@ class InventoryRepository:
     # Altas
     # ------------------------------------------------------------------
     def create_alta(self, record: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-        """Guarda un alta. Si ya existe una idéntica (mismo texto) la devuelve.
+        """Guarda un alta con el texto ya generado (ver ``register_alta``)."""
+        text = record["formatted_text"]
+        fields = {k: v for k, v in record.items() if k != "formatted_text"}
+        return self.register_alta(fields, lambda _loopback: text)
 
-        La unicidad se garantiza con un documento ``alta_hashes/{sha256}`` creado
-        en la misma transacción que el alta.
+    def register_alta(
+        self,
+        record: dict[str, Any],
+        render: Callable[[str | None], str],
+        *,
+        loopback_pool: tuple[str, str] | None = None,
+        vlan: tuple[str, str, dict[str, str]] | None = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Registra un alta en una sola transacción.
+
+        En la misma transacción se asigna (o reutiliza) la loopback del servicio,
+        se guardan los datos de la VLAN y se crea el alta: si algo falla no queda
+        ninguna loopback huérfana. ``render(loopback)`` genera el texto final.
+
+        Si ya existe un alta activa con el mismo texto (``alta_hashes/{sha256}``)
+        se devuelve esa y no se escribe nada.
         """
-        content_hash = hashlib.sha256(record["formatted_text"].encode("utf-8")).hexdigest()
-        hash_ref = self.col("alta_hashes").document(content_hash)
+        service_id = record["service_id"]
+        pool = self._loopback_pool(*loopback_pool) if loopback_pool else None
+        vlan_write = self._vlan_write(*vlan, record["operator"], record["operation_id"]) if vlan else None
 
         def run(transaction):
+            loopback, loopback_ref = (None, None)
+            if pool is not None:
+                loopback, loopback_ref = self._pick_loopback(transaction, service_id, pool)
+            text = render(loopback)
+            content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            hash_ref = self.col("alta_hashes").document(content_hash)
             snap = hash_ref.get(transaction=transaction)
             if snap.exists:
                 existing = self.col("altas").document(snap.to_dict()["alta_id"]).get(transaction=transaction)
-                if existing.exists:
+                if existing.exists and existing.to_dict().get("estado", ALTA_ACTIVA) != ALTA_BAJA:
                     return existing.to_dict(), True
+            # --- escrituras (todas las lecturas ya se hicieron) ---
+            now = utcnow()
+            if loopback_ref is not None:
+                transaction.set(loopback_ref, {"ip": loopback, "service_id": service_id,
+                                               "assigned_by": record["operator"],
+                                               "assigned_operation_id": record["operation_id"],
+                                               "assigned_at": now})
+            if vlan_write is not None:
+                transaction.set(vlan_write[0], vlan_write[1], merge=True)
             alta_id = new_readable_id("ALTA")
-            doc = {**record, "alta_id": alta_id, "content_hash": content_hash, "created_at": utcnow()}
+            doc = {**record, "loopback": loopback or record.get("loopback"), "formatted_text": text,
+                   "estado": ALTA_ACTIVA, "alta_id": alta_id, "content_hash": content_hash, "created_at": now}
             transaction.set(self.col("altas").document(alta_id), doc)
-            transaction.set(hash_ref, {"alta_id": alta_id, "created_at": doc["created_at"]})
+            transaction.set(hash_ref, {"alta_id": alta_id, "created_at": now})
             return doc, False
 
         return self._run_transaction(run)
@@ -780,6 +761,51 @@ class InventoryRepository:
         if not snap.exists:
             raise NotFoundError("Operación no encontrada.")
         return snap.to_dict()
+
+    # ------------------------------------------------------------------
+    # Baja de servicio
+    # ------------------------------------------------------------------
+    def decommission_service(self, service_id: str, operator: str, operation_id: str,
+                             reason: str) -> dict[str, Any]:
+        """Da de baja un servicio en una transacción: libera sus IPs y su loopback
+        y marca sus altas como ``BAJA`` (el texto se conserva para consulta)."""
+
+        def run(transaction):
+            ip_snaps = [
+                snap for snap in self._where("ip_addresses", "service_id", "==", service_id).stream(transaction=transaction)
+                if snap.to_dict().get("status") == STATUS_USED
+            ]
+            loopback_snaps = list(self._where("loopbacks", "service_id", "==", service_id).stream(transaction=transaction))
+            alta_snaps = [
+                snap for snap in self._where("altas", "service_id", "==", service_id).stream(transaction=transaction)
+                if snap.to_dict().get("estado", ALTA_ACTIVA) != ALTA_BAJA
+            ]
+            if not (ip_snaps or loopback_snaps or alta_snaps):
+                raise NotFoundError(f"El servicio {service_id} no tiene IPs, loopback ni altas activas.")
+            deltas: dict[str, int] = defaultdict(int)
+            for snap in ip_snaps:
+                deltas[snap.to_dict()["segment_id"]] -= 1
+            # _adjust_counters lee primero sus documentos y después escribe.
+            self._adjust_counters(transaction, deltas)
+            now = utcnow()
+            for snap in ip_snaps:
+                transaction.update(snap.reference,
+                                   self._release_update(snap.to_dict(), operator, operation_id, reason, now))
+            for snap in loopback_snaps:
+                transaction.delete(snap.reference)
+            for snap in alta_snaps:
+                transaction.update(snap.reference, {
+                    "estado": ALTA_BAJA, "baja_by": operator, "baja_at": now,
+                    "baja_operation_id": operation_id, "baja_reason": reason,
+                })
+            return {
+                "service_id": service_id,
+                "ips": sorted((s.to_dict()["ip"] for s in ip_snaps), key=ip_sort_key),
+                "loopbacks": [s.id for s in loopback_snaps],
+                "altas": [s.id for s in alta_snaps],
+            }
+
+        return self._run_transaction(run)
 
     def list_operations(self, operator: str = "", service_id: str = "", limit: int = 50) -> list[dict[str, Any]]:
         if operator:
@@ -843,7 +869,9 @@ class InventoryRepository:
         )
 
     def list_islas(self) -> list[str]:
-        islas = {s.get("isla") for s in self.list_sheets() if s.get("isla")}
+        islas = {d.get("nombre") for d in (snap.to_dict() for snap in self.col("islas").stream())
+                 if d.get("nombre") and d.get("activo", True)}
+        islas |= {s.get("isla") for s in self.list_sheets() if s.get("isla")}
         islas |= {c.get("isla") for c in self.list_centrales() if c.get("isla")}
         islas |= {v.get("isla") for v in (snap.to_dict() for snap in self.col("vlans").stream()) if v.get("isla")}
         return sorted(normalize_isla(i) for i in islas)
@@ -858,6 +886,12 @@ class InventoryRepository:
     def upsert_vlan(self, isla: str, vlan: str, values: dict[str, str], operator: str,
                     operation_id: str) -> dict[str, Any]:
         """Guarda RD, VRF y descripciones de una VLAN. Los campos vacíos no borran lo guardado."""
+        ref, data = self._vlan_write(isla, vlan, values, operator, operation_id)
+        ref.set(data, merge=True)
+        return ref.get().to_dict()
+
+    def _vlan_write(self, isla: str, vlan: str, values: dict[str, str], operator: str,
+                    operation_id: str) -> tuple[Any, dict[str, Any]]:
         isla = normalize_isla(isla)
         vlan = str(vlan).strip()
         if not vlan.isdigit() or not 1 <= int(vlan) <= 4094:
@@ -867,7 +901,61 @@ class InventoryRepository:
         if not updates:
             raise InventoryError("Indique al menos el RD, la VRF o una descripción de la VLAN.")
         ref = self.col("vlans").document(vlan_doc_id(isla, vlan))
-        ref.set({**updates, "isla": isla, "vlan": vlan, "updated_by": operator,
+        return ref, {**updates, "isla": isla, "vlan": vlan, "updated_by": operator,
+                     "updated_operation_id": operation_id, "updated_at": utcnow()}
+
+    # ------------------------------------------------------------------
+    # Topología: islas y chasis
+    # ------------------------------------------------------------------
+    def list_islas_region(self, region: str) -> list[dict[str, Any]]:
+        """Islas activas de una región (colección ``islas``), ordenadas por nombre."""
+        docs = (snap.to_dict() for snap in self._where("islas", "region", "==", region).stream())
+        return sorted((d for d in docs if d.get("nombre") and d.get("activo", True)),
+                      key=lambda d: d["nombre"])
+
+    def get_isla(self, isla: str) -> dict[str, Any]:
+        snap = self.col("islas").document(isla_doc_id(isla)).get()
+        if not snap.exists:
+            raise NotFoundError(f"La isla {normalize_isla(isla)} no está registrada en la topología.")
+        return snap.to_dict()
+
+    def upsert_isla(self, nombre: str, region: str, operator: str, operation_id: str,
+                    activo: bool = True) -> dict[str, Any]:
+        nombre = normalize_isla(nombre)
+        if not nombre:
+            raise InventoryError("Indique el nombre de la isla.")
+        ref = self.col("islas").document(isla_doc_id(nombre))
+        ref.set({"id": ref.id, "nombre": nombre, "region": region, "activo": activo,
+                 "updated_by": operator, "updated_operation_id": operation_id,
+                 "updated_at": utcnow()}, merge=True)
+        return ref.get().to_dict()
+
+    def list_chasis_isla(self, isla: str) -> list[dict[str, Any]]:
+        """Chasis activos de una isla (``chasis.isla_id`` → ``islas``)."""
+        isla_doc = self.get_isla(isla)
+        docs = (snap.to_dict() for snap in self._where("chasis", "isla_id", "==", isla_doc["id"]).stream())
+        return sorted((d for d in docs if d.get("activo", True)),
+                      key=lambda d: (str(d.get("nombre") or d["id"])))
+
+    def get_chasis(self, chasis_id: str) -> dict[str, Any]:
+        snap = self.col("chasis").document(chasis_id).get() if chasis_id and "/" not in chasis_id else None
+        if snap is None or not snap.exists:
+            raise NotFoundError(f"El chasis {chasis_id} no existe.")
+        return snap.to_dict()
+
+    CHASIS_TEXT_FIELDS = ("nombre", "id_fisico", "marca", "modelo", "hostname", "ip_admon")
+
+    def upsert_chasis(self, chasis_id: str, isla: str, values: dict[str, Any], operator: str,
+                      operation_id: str) -> dict[str, Any]:
+        """Crea o actualiza un chasis; la isla debe existir y define su región."""
+        isla_doc = self.get_isla(isla)
+        data = {k: str(values.get(k) or "").strip() for k in self.CHASIS_TEXT_FIELDS}
+        data["nombre"] = data["nombre"] or chasis_id
+        ref = self.col("chasis").document(chasis_id)
+        ref.set({**data, "id": chasis_id, "isla_id": isla_doc["id"], "isla": isla_doc["nombre"],
+                 "region": isla_doc.get("region", ""),
+                 "slots": _text_list(values.get("slots")), "puertos": _text_list(values.get("puertos")),
+                 "activo": bool(values.get("activo", True)), "updated_by": operator,
                  "updated_operation_id": operation_id, "updated_at": utcnow()}, merge=True)
         return ref.get().to_dict()
 
@@ -899,23 +987,29 @@ class InventoryRepository:
                 return ip
         raise ConflictError("No quedan loopbacks libres en el rango configurado.")
 
+    def _pick_loopback(self, transaction, service_id: str, pool: list[str]) -> tuple[str, Any]:
+        """Lecturas: devuelve la loopback del servicio (ref ``None``) o la primera libre (con su ref)."""
+        for snap in self._where("loopbacks", "service_id", "==", service_id).stream(transaction=transaction):
+            return snap.to_dict()["ip"], None
+        used = {snap.id for snap in self.col("loopbacks").stream(transaction=transaction)}
+        for ip in pool:
+            if ip in used:
+                continue
+            ref = self.col("loopbacks").document(ip)
+            if ref.get(transaction=transaction).exists:
+                continue
+            return ip, ref
+        raise ConflictError("No quedan loopbacks libres en el rango configurado.")
+
     def assign_loopback(self, service_id: str, operator: str, operation_id: str, start: str, end: str) -> str:
         """Asigna (o reutiliza) la loopback /32 del servicio de forma atómica."""
         pool = self._loopback_pool(start, end)
 
         def run(transaction):
-            for snap in self._where("loopbacks", "service_id", "==", service_id).stream(transaction=transaction):
-                return snap.to_dict()["ip"]
-            used = {snap.id for snap in self.col("loopbacks").stream(transaction=transaction)}
-            for ip in pool:
-                if ip in used:
-                    continue
-                ref = self.col("loopbacks").document(ip)
-                if ref.get(transaction=transaction).exists:
-                    continue
+            ip, ref = self._pick_loopback(transaction, service_id, pool)
+            if ref is not None:
                 transaction.set(ref, {"ip": ip, "service_id": service_id, "assigned_by": operator,
                                       "assigned_operation_id": operation_id, "assigned_at": utcnow()})
-                return ip
-            raise ConflictError("No quedan loopbacks libres en el rango configurado.")
+            return ip
 
         return self._run_transaction(run)

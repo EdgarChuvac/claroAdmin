@@ -55,6 +55,14 @@ class NetworkDefaults(BaseModel):
 class Medio(BaseModel):
     label: str
     ruta: str
+    # Con este medio se elige el chasis de la isla (puerto de transmisión).
+    usa_chasis: bool = False
+
+
+class Region(BaseModel):
+    label: str
+    # VLAN reservada para INTERNET en la región; DATOS no la ofrece.
+    vlan_internet: str = ""
 
 
 class Equipment(BaseModel):
@@ -77,9 +85,14 @@ class Central(BaseModel):
 
 
 DEFAULT_MEDIOS = {
-    "FIBRA": Medio(label="FIBRA ÓPTICA", ruta="FO"),
+    "FIBRA": Medio(label="FIBRA ÓPTICA", ruta="FO", usa_chasis=True),
     "RADIO": Medio(label="RADIOENLACE", ruta="RADIO"),
     "GPON": Medio(label="G-PON", ruta="G-PON"),
+}
+
+DEFAULT_REGIONES = {
+    "METROPOLITANA": Region(label="METROPOLITANA", vlan_internet="3740"),
+    "DEPARTAMENTAL": Region(label="DEPARTAMENTAL", vlan_internet="3750"),
 }
 
 
@@ -89,6 +102,17 @@ class Catalog:
     network_defaults: NetworkDefaults
     centrales: list[Central] = field(default_factory=list)
     medios: dict[str, Medio] = field(default_factory=lambda: dict(DEFAULT_MEDIOS))
+    regiones: dict[str, Region] = field(default_factory=lambda: dict(DEFAULT_REGIONES))
+
+    def region(self, value: str) -> str:
+        """Clave de la región configurada (``METROPOLITANA``) o error si no existe."""
+        key = (value or "").strip().upper()
+        if key not in self.regiones:
+            raise ValueError(f"Región desconocida: {value}. Use una de: {', '.join(self.regiones)}.")
+        return key
+
+    def internet_vlans(self) -> set[str]:
+        return {r.vlan_internet for r in self.regiones.values() if r.vlan_internet}
 
     def medio_ruta(self, medio: str) -> str:
         """Texto del tramo de medio en la ruta (FIBRA -> FO). Valores desconocidos se usan tal cual."""
@@ -111,6 +135,7 @@ class Catalog:
             "services": {name: t.model_dump() for name, t in self.services.items()},
             "network_defaults": self.network_defaults.model_dump(),
             "medios": {name: m.model_dump() for name, m in self.medios.items()},
+            "regiones": {name: r.model_dump() for name, r in self.regiones.items()},
         }
 
 
@@ -127,12 +152,15 @@ def load_catalog(config_dir: str | Path) -> Catalog:
         raise ValueError("service_templates.json debe definir al menos un servicio.")
     defaults = NetworkDefaults(**templates.get("network_defaults", {}))
     medios = {name.upper(): Medio(**m) for name, m in templates.get("medios", {}).items()} or dict(DEFAULT_MEDIOS)
+    regiones = ({name.upper(): Region(**r) for name, r in templates.get("regiones", {}).items()}
+                or dict(DEFAULT_REGIONES))
 
     centrales: list[Central] = []
     centrales_path = config_dir / "centrales.json"
     if centrales_path.is_file():
         centrales = [Central(**item) for item in _read_json(centrales_path).get("centrales", [])]
-    return Catalog(services=services, network_defaults=defaults, centrales=centrales, medios=medios)
+    return Catalog(services=services, network_defaults=defaults, centrales=centrales, medios=medios,
+                   regiones=regiones)
 
 
 @lru_cache

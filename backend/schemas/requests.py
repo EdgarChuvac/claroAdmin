@@ -79,6 +79,10 @@ class FormatData(BaseModel):
     direccion: str = ""
     coordenadas: str = ""
     medio: str = "FIBRA"
+    region: str = ""
+    chasis_id: str = Field(default="", max_length=64)
+    chasis_slot: str = Field(default="", max_length=20)
+    chasis_puerto: str = Field(default="", max_length=20)
     velocidad: str = ""
     ips_count: str = "1"
     equipo_cpe: str = ""
@@ -144,3 +148,39 @@ class VlanRequest(BaseModel):
     vrf_name: str = Field(default="", max_length=80)
     vrf_desc: str = Field(default="", max_length=120)
     vlan_desc: str = Field(default="", max_length=120)
+
+class ServiceBajaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=3, max_length=300)
+
+    @field_validator("reason")
+    @classmethod
+    def _clean_reason(cls, value: str) -> str:
+        value = tracing.clean_text(value, 300)
+        if len(value) < 3:
+            raise ValueError("Indique el motivo de la baja.")
+        return value
+
+class IslaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nombre: str = Field(min_length=1, max_length=60)
+    region: str = Field(min_length=1, max_length=40)
+    activo: bool = True
+
+CHASIS_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+
+class ChasisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    isla: str = Field(min_length=1, max_length=60)
+    nombre: str = Field(default="", max_length=80)
+    id_fisico: str = Field(default="", max_length=60)
+    marca: str = Field(default="", max_length=40)
+    modelo: str = Field(default="", max_length=60)
+    hostname: str = Field(default="", max_length=80)
+    ip_admon: str = Field(default="", max_length=45)
+    slots: list[str] = Field(default_factory=list, max_length=64)
+    puertos: list[str] = Field(default_factory=list, max_length=256)
+    activo: bool = True

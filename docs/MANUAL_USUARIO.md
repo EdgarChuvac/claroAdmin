@@ -76,7 +76,14 @@ La primera vez que abre la aplicación en un navegador, se le pide su **nombre y
 
 ### 4.2 Pestaña Servicio
 
-Medio de transmisión (**FIBRA ÓPTICA**, **RADIOENLACE** o **G-PON**), equipo CPE extremo cliente y observaciones opcionales. El medio aparece en la ruta (`FO`, `RADIO` o `G-PON`).
+En **Topología de Transporte**:
+
+1. **Región** (METROPOLITANA o DEPARTAMENTAL). Carga las islas de esa región.
+2. **Isla / Central**. Carga sus segmentos, sus VLAN y la ruta de equipos de su central.
+3. **Medio de transmisión** (**FIBRA ÓPTICA** por defecto, **RADIOENLACE** o **G-PON**). El medio aparece en la ruta (`FO`, `RADIO` o `G-PON`). Cambiar la isla ya no borra el medio elegido.
+4. Con **FIBRA ÓPTICA** aparece **Chasis**: elija el chasis de la isla y, si el chasis los tiene registrados, el **Slot** y el **Puerto**. En el alta se imprime la línea `CHASIS: nombre | ID FISICO … | SLOT … | PUERTO …` debajo de la ruta. Si la isla no tiene chasis registrados, deje **SIN CHASIS**.
+
+También se capturan el equipo CPE extremo cliente y observaciones opcionales.
 
 ### 4.3 Pestaña Equipamiento: isla, VLAN e IPs
 
@@ -84,9 +91,9 @@ Medio de transmisión (**FIBRA ÓPTICA**, **RADIOENLACE** o **G-PON**), equipo C
 
 > Las capturas de esta sección son de la versión anterior; el orden de los campos cambió como se describe abajo.
 
-1. **Isla / Central** (primera opción). Al elegirla se carga la ruta de equipos de su central y solo se ofrecen los segmentos de esa isla.
-   * Los segmentos importados antes de esta versión aparecen en *(Segmentos sin isla asignada)*. Selecciónelos y pulse **🏷 Isla** junto al segmento para asignarlos; también puede indicar la isla al importar el Excel.
-2. **Tipo de servicio** (segunda opción): **INTERNET** o **DATOS**. Solo INTERNET habilita el campo **IP Pública**.
+1. La **isla** se elige en la pestaña Servicio; aquí solo se ofrecen los segmentos de esa isla.
+   * Los segmentos sin isla aparecen en *(Segmentos sin isla asignada)* dentro del selector de isla. Selecciónelos y pulse **🏷 Isla** junto al segmento para asignarlos; también puede indicar la isla al importar el Excel.
+2. **Tipo de servicio**: **INTERNET** o **DATOS**. Solo INTERNET habilita el campo **IP Pública**. Con INTERNET solo se ofrece la VLAN de Internet de la región elegida (3740 METROPOLITANA, 3750 DEPARTAMENTAL); con DATOS esas VLAN no aparecen.
 3. **Número de VLAN** (tercera opción). Limita los segmentos /24, las subredes y las IPs disponibles a esa VLAN, y completa **RD**, **Nombre de VRF**, **Descripción VRF** y **Descripción VLAN** con lo guardado para la VLAN.
    * Si la VLAN aún no tiene datos, escríbalos y pulse **💾 Guardar datos de la VLAN** (también se guardan al registrar el alta). La próxima vez se completarán solos.
 4. Elija el **Segmento /24** y la **Subred**; en **IPs Disponibles** seleccione una o varias IPs (mantenga **Ctrl** o **Cmd**). La **primera** será la **IP WAN**. **Siguiente libre** selecciona la primera IP libre.
@@ -135,7 +142,11 @@ Al abrir la pestaña se muestra una **vista previa** (aún no registrada):
 
    ![Liberar IP con motivo](img/14_liberar.png)
 
-La IP vuelve a quedar disponible. El motivo, su nombre y el ID de operación quedan registrados.
+La IP vuelve a quedar disponible (también se borra el cliente). El motivo, su nombre y el ID de operación quedan registrados.
+
+### Dar de baja un servicio completo
+
+En **🔎 Consultas**, busque el ID de servicio y pulse **Dar de baja el servicio**. Escriba el motivo y confirme. En un solo paso se liberan **todas** sus IPs y su loopback, y sus altas quedan marcadas como **DE BAJA** (el texto se conserva para consulta).
 
 ---
 
@@ -175,7 +186,7 @@ Pestaña **🔎 Consultas**:
 
 ![Consultas: búsqueda por servicio, operación e historial de altas](img/11_consultas.png)
 
-* **Buscar por ID de servicio:** IPs asignadas (con quién y cuándo) y altas registradas.
+* **Buscar por ID de servicio:** IPs asignadas (con quién y cuándo), loopback y altas registradas (las dadas de baja dicen **DE BAJA**). Desde aquí se da de baja el servicio.
 * **Soporte: consultar operación:** pegue un ID `OP-...` para ver qué se hizo, quién, cuándo, el resultado y el error, si lo hubo.
 * **Últimas altas registradas:** botón **Ver** para abrir el texto completo y copiarlo.
 

@@ -4,7 +4,8 @@ Cada hoja representa un segmento /24 y su nombre es la dirección base
 (p. ej. ``10.20.38.0``). Las columnas se leen en pares: la columna impar
 contiene el último octeto y la columna par la etiqueta (VLAN en la fila de
 red, ``GW`` para el gateway, ``BROADCAST`` al cierre del bloque, vacío o
-``-`` para IP libre y cualquier otro texto como ID de servicio asignado).
+``-`` para IP libre y cualquier otro texto como ID de servicio asignado, seguido
+opcionalmente del nombre del cliente: ``SRV-001 BANCO DEMO``).
 
 El Excel ya no es la fuente de datos: solo se usa para importar el inventario
 a Firestore (``POST /api/inventory/import``).
@@ -238,26 +239,16 @@ class ExcelIPAMReader:
                                         "status": "DISPONIBLE"
                                     })
                                 else:
-                                    # Assigned to client ID
-
-                                    parts = h_str.split(" ", 1)
-
-                                    service_id = parts[0].strip()
-                                    customer_name = parts[1].strip() if len(parts) > 1 else ""
-
-
-                                    print("DEBUG:", h_str)
-                                    print("SERVICE:", service_id)
-                                    print("CLIENTE:", customer_name)
-
+                                    # Ocupada: "ID_SERVICIO" o "ID_SERVICIO NOMBRE DEL CLIENTE".
+                                    parts = h_str.split(None, 1)
                                     block.assigned_ips.append({
-                                            "octet": h_octet,
-                                            "ip": h_ip,
-                                            "id": service_id,
-                                            "customer_name": customer_name,
-                                            "row": host_r,
-                                            "status": "OCUPADA"
-                                   })
+                                        "octet": h_octet,
+                                        "ip": h_ip,
+                                        "id": parts[0],
+                                        "customer_name": parts[1].strip() if len(parts) > 1 else "",
+                                        "row": host_r,
+                                        "status": "OCUPADA",
+                                    })
 
                             # Default gateway if not explicitly labelled with 'GW'
                             # Si no se rotuló, el gateway es la primera IP útil y

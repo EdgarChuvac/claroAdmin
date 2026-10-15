@@ -93,6 +93,12 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
         data.get("equipos_claro") or [], raisecom, equipo_cpe, medio_ruta
     )
     obs_medio = _text(data.get("obs_medio"))
+    chasis = " | ".join(p for p in (
+        _text(data.get("chasis_nombre")),
+        f"ID FISICO {_text(data.get('chasis_id_fisico'))}" if _text(data.get("chasis_id_fisico")) else "",
+        f"SLOT {_text(data.get('chasis_slot'))}" if _text(data.get("chasis_slot")) else "",
+        f"PUERTO {_text(data.get('chasis_puerto'))}" if _text(data.get("chasis_puerto")) else "",
+    ) if p)
 
     # Recursos
     red_wan = _text(data.get("red_wan"))
@@ -104,6 +110,7 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
     loopback_ip = loopback.split("/")[0]
     if loopback and "/" not in loopback:
         loopback = f"{loopback}/32"
+    region = _text(data.get("region"))
     isla = _text(data.get("isla"))
     vlan = _text(data.get("vlan_num"))
     vrf_name = _text(data.get("vrf_name"))
@@ -122,6 +129,7 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
     elif sin_factibilidad:
         lines.append(SIN_FACTIBILIDAD)
     lines.extend([FACTIBILIDAD_SEPARATOR, "", "RUTA A CONFIGURAR", "=================", "", ruta])
+    _optional(lines, "CHASIS: ", chasis)
     _optional(lines, "OBSERVACIONES DE MEDIO: ", obs_medio)
     _optional(lines, "OBSERVACIONES: ", observaciones)
 
@@ -138,6 +146,7 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
     if loopback:
         recursos.extend([f"LOOPBACK {loopback}", ""])
     red_lines: List[str] = []
+    _optional(red_lines, "REGION ", region)
     _optional(red_lines, "ISLA ", isla)
     if vlan:
         red_lines.append(f"VLAN {vlan}" + (f" NOMBRE DE VRF: {vrf_name}" if vrf_name else ""))

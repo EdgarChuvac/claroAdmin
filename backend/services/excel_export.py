@@ -55,7 +55,9 @@ def build_inventory_workbook(snapshot: dict[str, dict[str, Any]]) -> bytes:
                     doc = ips.get(ip, {})
                     status = doc.get("status")
                     if status == STATUS_USED:
-                        _set_text(label_cell, doc.get("service_id"))
+                        # Mismo formato que lee la importación: "ID_SERVICIO CLIENTE".
+                        _set_text(label_cell, " ".join(
+                            p for p in (doc.get("service_id") or "", doc.get("cliente") or "") if p))
                         fill = PEACH
                     elif status == STATUS_GATEWAY or ip == seg.get("gateway_ip"):
                         label_cell.value = "GW"

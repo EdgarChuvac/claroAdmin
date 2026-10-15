@@ -2,14 +2,36 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Backend FastAPI",
+      "name": "Backend FastAPI (demo en memoria)",
       "type": "debugpy",
       "request": "launch",
       "module": "uvicorn",
       "args": [
         "backend.main:app",
-        "--host", "127.0.0.1",
-        "--port", "8000",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
+        "--reload"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "DATA_BACKEND": "memory",
+        "LOG_DIR": ""
+      },
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Backend FastAPI (Firestore desarrollo)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "backend.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
         "--reload"
       ],
       "cwd": "${workspaceFolder}",

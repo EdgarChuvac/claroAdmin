@@ -85,12 +85,13 @@ credenciales reales.
 
 ```bash
 ruff check backend scripts tests      # lint (config en pyproject.toml)
-python -m pytest                      # ~60 pruebas, <2 s, sin red ni credenciales
+python -m pytest                      # ~87 pruebas, <3 s, sin red ni credenciales
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8085 python -m pytest tests/integration   # solo con el emulador
 node --check frontend/app.js          # si tocó el JS y tiene Node; opcional
 ```
 
-No hay CI configurado: estas verificaciones son responsabilidad de quien hace el cambio.
+La CI (`.github/workflows/ci.yml`) corre lo mismo en cada push y PR, además de validar los JSON de `config/` y
+`firebase/` y las pruebas del emulador.
 
 ## 6. Estructura y dónde va cada cambio
 
@@ -101,16 +102,19 @@ backend/                     paquete Python; entrada: backend.main:app
     dependencies.py          AppState, build_state(), StateDep / OperatorDep, helpers de validación
     middleware.py            operation_id por petición + auditoría en `operations`
     errors.py                errores -> JSON con operation_id
-    routes/                  system, inventory, network (islas/VLAN/loopbacks), reservations, altas, operations
+    routes/                  system, inventory, network (topología islas/chasis, VLAN, loopbacks), reservations,
+                             altas (altas y baja de servicio), operations
   schemas/requests.py        modelos Pydantic de entrada (extra="forbid")
   core/                      settings.py, tracing.py, errors.py (InventoryError, NotFoundError, ConflictError)
   db/                        firebase_client.py, firestore_fake.py (cliente en memoria)
   repositories/inventory.py  TODO el acceso a Firestore
-  services/                  catalog, format_generator, excel_parser, excel_import, excel_export
-config/                      service_templates.json, centrales.json (se leen al arrancar)
+  services/                  catalog, format_generator, excel_parser, excel_import, excel_export,
+                             topology (carga/migración de islas y chasis)
+config/                      service_templates.json (plantillas, medios, regiones), centrales.json,
+                             topologia_demo.json (islas/chasis ficticios para modo memoria)
 frontend/                    index.html, app.js, style.css
 firebase/                    firestore.rules, firestore.indexes.json (firebase.json en la raíz)
-scripts/                     python -m scripts.import_excel | seed_centrales | create_sample_excel
+scripts/                     python -m scripts.import_excel | seed_centrales | seed_topologia | create_sample_excel
 tests/                       unit/ (sin HTTP) · api/ (TestClient en memoria) · integration/ (emulador)
 data/                        ejemplo_inventario_ips.xlsx (carga automática en modo memoria)
 docs/                        manuales de usuario y desarrollador
@@ -122,7 +126,8 @@ docs/                        manuales de usuario y desarrollador
 | Lógica de negocio | `backend/services/` (sin FastAPI) |
 | Leer/escribir Firestore | `backend/repositories/inventory.py`; si usa una operación nueva del SDK, implementarla también en `backend/db/firestore_fake.py` |
 | Cambiar el texto del alta | `backend/services/format_generator.py` + pruebas en `tests/unit/` |
-| Plantillas, medios, pool de loopbacks | `config/service_templates.json` (reiniciar la app) |
+| Plantillas, medios, regiones, pool de loopbacks | `config/service_templates.json` (reiniciar la app) |
+| Islas o chasis | `PUT /api/islas`, `PUT /api/chasis/{id}` o `python -m scripts.seed_topologia` |
 | Pantalla | `frontend/index.html` + `frontend/app.js` (+ `style.css`) |
 | Una consulta con `where` + `order_by` en campos distintos | agregar el índice en `firebase/firestore.indexes.json` |
 
@@ -131,11 +136,16 @@ docs/                        manuales de usuario y desarrollador
 * **Segmento /24** (`inventory_sheets`): equivale a una pestaña del Excel histórico; se nombra por su red base (`10.20.38.0`).
 * **Subred** (`ip_segments`): bloque dentro del /24 con red, gateway, broadcast y **VLAN**.
 * **IP** (`ip_addresses/{ip}`): estado `DISPONIBLE`, `OCUPADA` (con `service_id`) o `GATEWAY`.
-* **Isla / Central**: agrupa segmentos (campo `isla`). Flujo de la pantalla Equipamiento:
-  **Isla → Tipo de servicio → VLAN → Segmento /24 → Subred → IP**.
+* **Región**: `METROPOLITANA` o `DEPARTAMENTAL` (`regiones` en `service_templates.json`, con su VLAN de Internet).
+* **Isla / Central** (`islas/{slug}`): pertenece a una región y agrupa segmentos (campo `isla` por nombre).
+  Flujo de la pantalla: **Región → Isla → Medio → Chasis → Tipo de servicio → VLAN → Segmento /24 → Subred → IP**.
+* **Chasis** (`chasis/{id}`): equipo de transmisión de una isla (`isla_id`), con `slots` y `puertos`. Se elige
+  con medios `usa_chasis: true` (FIBRA) y se imprime en el alta.
 * **VLAN** (`vlans/{ISLA}_{vlan}`): guarda RD, nombre/descripción de VRF y descripción de VLAN para autocompletar.
 * **Loopback** (`loopbacks/{ip}`): /32 asignada automáticamente del pool `10.212.100.1`–`.254`, una por servicio.
-* **Alta** (`altas`): texto final registrado; idempotente por hash del texto (`alta_hashes`).
+* **Alta** (`altas`): texto final registrado; idempotente por hash del texto (`alta_hashes`). Loopback, VLAN y alta se
+  escriben en una sola transacción (`register_alta`). `estado`: `ACTIVA` o `BAJA`.
+* **Baja de servicio** (`POST /api/services/{id}/baja`): libera IPs y loopback y marca las altas como `BAJA`.
 * **Factibilidad**: texto pegado por el usuario o la marca «Sin factibilidad»; sin una de las dos no se registra el alta.
 * **Tipos de servicio**: solo `INTERNET` y `DATOS` (solo INTERNET usa IP pública).
 
@@ -160,8 +170,10 @@ docs/                        manuales de usuario y desarrollador
 * `LOG_DIR` por defecto escribe en `logs/`; en contenedores o pruebas déjelo vacío.
 * `get_settings()` y `default_catalog()` están cacheados (`lru_cache`): en pruebas use `get_settings.cache_clear()`.
 * Los segmentos importados antes de la versión 2.1 no tienen isla: aparecen como «Segmentos sin isla asignada».
+* Las colecciones `ISLAS` y `EQUIPO_CHASIS` son del modelo anterior: la app ya no las lee. Se migran con
+  `python -m scripts.seed_topologia --desde-legado`.
+* El nombre del chasis del alta se lee de Firestore; no confíe en lo que mande el navegador.
 * Las capturas en `docs/img` son de la versión 2.0 (la pantalla cambió en 2.1).
-* Las loopbacks no se liberan solas al dar de baja un servicio (se borra el documento `loopbacks/{ip}`).
 * `scripts/create_sample_excel.py` regenera `data/ejemplo_inventario_ips.xlsx`; varias pruebas dependen de ese archivo.
 
 ## 10. Git
