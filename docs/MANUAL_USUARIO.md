@@ -113,6 +113,9 @@ También se capturan el equipo CPE extremo cliente y observaciones opcionales.
 
 * **Equipo demarcador** (Raisecom): aparece como `(CLIENTE) RAISECOM ...` en la línea de **RUTA A CONFIGURAR**. El tramo del medio sale de la pestaña Servicio.
 * **Observaciones de medio**: si escribe algo, se agrega debajo de la ruta.
+* **Gestión del demarcador** (VRF, VLAN, descripción, red, GW e IP): se imprime al inicio de *RECURSOS ASIGNADOS*. Al elegir el medio se llenan la VRF, la VLAN y la descripción por defecto (con G-PON: `DSL_ACCESO`, `1698`, `GESTION_CORP_ ONT`); red, GW e IP son del sitio y se escriben a mano.
+
+En la tabla de **Equipos extremo Claro**, la columna **Interfaz** (p. ej. `Eth-Trunk10 (G0/3/0, G0/3/3)` o `S1|P9`) se imprime después de la IP de cada equipo. Las **Observaciones de Ingeniería** de la pestaña Servicio se imprimen al final del alta, debajo del ID del servicio.
 
 ### 4.5 Pestaña Generar Formato: vista previa y registro
 
@@ -151,6 +154,8 @@ En **🔎 Consultas**, busque el ID de servicio y pulse **Dar de baja el servici
 ---
 
 ## 6. Importar el inventario desde Excel
+
+> Las hojas pueden llamarse `10.78.163.0`, `10.18.57.X`, `TIVOLI - 10.78.163.0` o `10.78.151.0 - TIV`. La **isla** que indique al importar debe existir en la topología (si no, la importación se rechaza sin escribir nada). Las IPs rotuladas `HSRP`, `OCC`, etc. se importan como ocupadas con esa etiqueta y no se pueden dar de baja como servicio: libérelas una por una.
 
 Use **Importar Excel a Firebase** en la cabecera.
 

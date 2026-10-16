@@ -72,8 +72,19 @@ function medioUsaChasis() {
   return Boolean(medio && medio.usa_chasis);
 }
 
+// Gestión del demarcador: la del medio (p. ej. G-PON) o la de network_defaults.
+function applyMedioGestion() {
+  if (!state.config) return;
+  const d = state.config.network_defaults;
+  const medio = state.config.medios[$("s-medio").value] || {};
+  $("m-vrf-gestor").value = medio.vrf_gestor || d.vrf_gestor || "";
+  $("m-vlan-gestor").value = medio.vlan_gestor || d.vlan_gestor || "";
+  $("m-desc-gestor").value = medio.desc_gestor || "";
+}
+
 async function onMedioChange() {
   $("grp-chasis").hidden = !medioUsaChasis();
+  applyMedioGestion();
   markFormatStale();
   await loadChasisForIsla();
 }
@@ -416,6 +427,10 @@ async function loadConfig() {
 
   const d = cfg.network_defaults;
   $("m-raisecom").value = d.equipo_raisecom;
+  $("m-red-gestor").value = d.red_gestor || "";
+  $("m-gw-gestor").value = d.gw_gestor || "";
+  $("m-ip-gestor").value = d.ip_gestor_raisecom || "";
+  applyMedioGestion();
   $("s-equipo").value = d.equipo_cpe;
   $("eq-loopback").placeholder = `Asignada por el sistema (${d.loopback_pool_start} - ${d.loopback_pool_end} /32)`;
 
@@ -500,12 +515,20 @@ async function loadInventory() {
       : "Inventario vacío: importe un Excel";
     badge.classList.toggle("empty", !state.sheets.length);
     badge.classList.remove("error");
-    await loadIslas();
+    await Promise.all([loadIslas(), loadIslasDatalist()]);
   } catch (err) {
     badge.classList.add("error");
     $("inventory-status").textContent = "Error al conectar con Firebase";
     showError(err, "No se pudo cargar el inventario");
   }
+}
+
+// Importar y «🏷 Isla» solo aceptan islas registradas: se sugieren las de todas las regiones.
+async function loadIslasDatalist() {
+  const regiones = Object.keys((state.config && state.config.regiones) || {});
+  const respuestas = await Promise.all(regiones.map(r => api(`/api/islas?region=${encodeURIComponent(r)}`)));
+  const islas = [...new Set(respuestas.flatMap(r => r.islas))].sort();
+  $("islas-datalist").replaceChildren(...islas.map(i => el("option", { value: i })));
 }
 
 async function loadIslas(preferred) {
@@ -515,7 +538,6 @@ async function loadIslas(preferred) {
   const before = select.value;
   const current = preferred !== undefined ? preferred : before;
   select.replaceChildren(new Option(region ? "Cargando islas..." : "Seleccione primero la región", ""));
-  $("islas-datalist").replaceChildren();
   await onIslaChange();
   if (!region) return;
   let data;
@@ -530,7 +552,6 @@ async function loadIslas(preferred) {
   const options = [new Option("Seleccione la isla / central", ""), ...data.islas.map(i => new Option(i, i))];
   if (data.has_unassigned) options.push(new Option("(Segmentos sin isla asignada)", NO_ISLA));
   select.replaceChildren(...options);
-  $("islas-datalist").replaceChildren(...data.islas.map(i => el("option", { value: i })));
   if ([...select.options].some(o => o.value === current)) select.value = current;
   await onIslaChange({ keepSelection: select.value === before });
 }
@@ -1014,7 +1035,7 @@ function downloadBlob(blob, filename) {
 function getEquipmentRowsData() {
   return Array.from($("equipment-tbody").querySelectorAll("tr")).map(tr => {
     const v = Array.from(tr.querySelectorAll("input")).map(i => i.value.trim());
-    return { no: v[0], rol: v[1], marca: v[2], modelo: v[3], hostname: v[4], ip_admon: v[5] };
+    return { no: v[0], rol: v[1], marca: v[2], modelo: v[3], hostname: v[4], ip_admon: v[5], int_out: v[6] };
   });
 }
 
@@ -1022,7 +1043,7 @@ function addEquipmentRow(data = {}) {
   const tbody = $("equipment-tbody");
   const headers = document.querySelectorAll("#equipment-table th");
   const values = [data.no || tbody.querySelectorAll("tr").length + 1, data.rol || "", data.marca || "", data.modelo || "",
-    data.hostname || "", data.ip_admon || ""];
+    data.hostname || "", data.ip_admon || "", data.int_out || ""];
   const tr = el("tr", {}, ...values.map((value, index) =>
     el("td", {}, el("input", { type: "text", value: String(value), "aria-label": headers[index].textContent.trim() }))));
   tr.appendChild(el("td", { class: "center" },
@@ -1194,6 +1215,12 @@ function collectFormData() {
     loopback_auto: $("eq-loopback-auto").checked,
     equipos_claro: getEquipmentRowsData(),
     equipo_raisecom: $("m-raisecom").value,
+    vrf_gestor: $("m-vrf-gestor").value.trim(),
+    vlan_gestor: $("m-vlan-gestor").value.trim(),
+    desc_gestor: $("m-desc-gestor").value.trim(),
+    red_gestor: $("m-red-gestor").value.trim(),
+    gw_gestor: $("m-gw-gestor").value.trim(),
+    ip_gestor_raisecom: $("m-ip-gestor").value.trim(),
     obs_medio: $("m-obs-medio").value,
   };
 }

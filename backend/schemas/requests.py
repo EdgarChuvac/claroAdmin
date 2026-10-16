@@ -112,6 +112,7 @@ class FormatData(BaseModel):
     obs_medio: str = ""
     vrf_gestor: str = ""
     vlan_gestor: str = ""
+    desc_gestor: str = ""
     red_gestor: str = ""
     gw_gestor: str = ""
     ip_gestor_raisecom: str = ""

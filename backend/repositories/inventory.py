@@ -273,6 +273,8 @@ class InventoryRepository:
         sheets = [s for s, b in blocks_by_sheet.items() if b]
 
         isla = normalize_isla(isla)
+        if isla:
+            isla = self.get_isla(isla)["nombre"]  # debe estar registrada en la topología
         for sheet in sheets:
             blocks = blocks_by_sheet[sheet]
             existing_sheet = self.col("inventory_sheets").document(sheet).get()
@@ -769,6 +771,12 @@ class InventoryRepository:
                              reason: str) -> dict[str, Any]:
         """Da de baja un servicio en una transacción: libera sus IPs y su loopback
         y marca sus altas como ``BAJA`` (el texto se conserva para consulta)."""
+        if not any(ch.isdigit() for ch in service_id):
+            # Etiquetas de infraestructura del Excel (HSRP, OCC…) agrupan IPs de muchos servicios.
+            raise InventoryError(
+                f"«{service_id}» parece una etiqueta de infraestructura, no un ID de servicio. "
+                "Libere esas IPs una por una desde Equipamiento."
+            )
 
         def run(transaction):
             ip_snaps = [
@@ -841,8 +849,8 @@ class InventoryRepository:
     # Islas, segmentos y catálogo de VLANs
     # ------------------------------------------------------------------
     def set_sheet_isla(self, sheet: str, isla: str) -> dict[str, Any]:
-        """Asigna la isla/central a un segmento /24 y a todas sus subredes."""
-        isla = normalize_isla(isla)
+        """Asigna la isla/central (registrada en ``islas``) a un segmento /24 y a sus subredes."""
+        isla = self.get_isla(isla)["nombre"]
         sheet_ref = self.col("inventory_sheets").document(sheet)
         if not sheet_ref.get().exists:
             raise NotFoundError("La hoja solicitada no existe en el inventario.")
@@ -916,7 +924,8 @@ class InventoryRepository:
     def get_isla(self, isla: str) -> dict[str, Any]:
         snap = self.col("islas").document(isla_doc_id(isla)).get()
         if not snap.exists:
-            raise NotFoundError(f"La isla {normalize_isla(isla)} no está registrada en la topología.")
+            raise NotFoundError(f"La isla {normalize_isla(isla)} no está registrada en la topología. "
+                                "Regístrela primero con su región (PUT /api/islas o scripts.seed_topologia).")
         return snap.to_dict()
 
     def upsert_isla(self, nombre: str, region: str, operator: str, operation_id: str,

@@ -44,6 +44,11 @@ def build_inventory_workbook(snapshot: dict[str, dict[str, Any]]) -> bytes:
                 num_cell = ws.cell(row=row, column=1, value=octet)
                 label_cell = ws.cell(row=row, column=2)
                 fill = None
+                is_edge = octet in (seg["network_octet"], seg["broadcast_octet"])
+                if not is_edge and ip not in ips and ip != seg.get("gateway_ip"):
+                    # IP que no existe en el inventario (faltaba en el Excel original):
+                    # fila sin octeto para que al reimportar no aparezca como libre.
+                    num_cell.value = None
                 if octet == seg["network_octet"]:
                     _set_text(label_cell, seg.get("vlan_raw") or (f"VLAN {seg['vlan']}" if seg.get("vlan") else "RED"))
                     label_cell.font = BOLD

@@ -97,10 +97,11 @@ def test_format_generation():
     assert "SERVICIO-DEMO-001" in text
     assert "10.78.89.32/27 RED" in text
     assert "10.78.89.35    WAN" in text
-    assert "LOOPBACK 10.212.239.51/32" in text
-    assert "ISLA CARMEN" in text
-    assert "VLAN 3740 NOMBRE DE VRF: INTERNET_GT_METRO" in text
-    assert "RD 6458:11270" in text
+    assert "LOOPBACK: 10.212.239.51/32" in text
+    assert "ISLA: CARMEN" in text
+    assert "VLAN: 3740" in text
+    assert "ip vpn-instance INTERNET_GT_METRO" in text
+    assert " route-distinguisher 6458:11270" in text
     assert "LOOPBACK 5 :  10.212.239.51" in text
     assert "PSK-DEMO-NO-VALIDA" not in text
     print("[OK] Todas las validaciones de generacion de formato pasaron exitosamente.")
@@ -109,7 +110,7 @@ def test_format_generation():
 def test_pasted_factibility_block_is_printed_as_is():
     bloque = "TITULO:\t***INTERNET CORPORATIVO***\nMEDIO:\tFIBRA\nDIRECCION:\tZONA 1\\1"
     text = generate_format_text({"titulo": "INTERNET", "medio": "RADIO", "factibilidad_bloque": bloque})
-    assert f"Factibilidad:\n{bloque}\n" in text
+    assert f"{bloque}\n" in text
     assert "==> RADIO ==>" not in text  # sin equipos Claro no hay tramo de medio
 
 
@@ -118,3 +119,56 @@ if __name__ == "__main__":
     test_excel_parsing()
     test_format_generation()
     print("\n[EXITO] TODAS LAS PRUEBAS COMPLETADAS CON EXITO!")
+
+
+import pytest  # noqa: E402
+
+from backend.services.excel_parser import normalize_sheet_name, split_service_label  # noqa: E402
+
+
+@pytest.mark.parametrize(("nombre", "esperado"), [
+    ("10.78.163.0", "10.78.163.0"),
+    ("TIVOLI - 10.78.163.0", "10.78.163.0"),
+    ("10.78.151.0 - TIVOLI NUEVO PE", "10.78.151.0"),
+    ("10.18.57.X", "10.18.57.0"),
+    ("10.18.53.x", "10.18.53.0"),
+    (" 10.20.38.0 ", "10.20.38.0"),
+    ("10.20.38.128", None),
+    ("Hoja1", None),
+    ("10.1.1.0 y 10.1.2.0", None),
+    ("999.1.1.0", None),
+])
+def test_nombres_de_hoja_de_los_excel_reales(nombre, esperado):
+    assert normalize_sheet_name(nombre) == esperado
+
+
+@pytest.mark.parametrize(("etiqueta", "esperado"), [
+    ("1282900001T HILOS Y ALGODON, S.A..", ("1282900001T", "HILOS Y ALGODON, S.A..")),
+    ("1317800048T  PRODUCTOS ALIMENTICIOS", ("1317800048T", "PRODUCTOS ALIMENTICIOS")),
+    ("86100290", ("86100290", "")),
+    ("HSRP", ("HSRP", "")),
+    ("MINISTERIO PUBLICO", ("MINISTERIO PUBLICO", "")),
+    ("HSRP fis 1", ("HSRP fis 1", "")),
+])
+def test_separa_id_y_cliente_solo_si_parece_id(etiqueta, esperado):
+    assert split_service_label(etiqueta) == esperado
+
+
+@pytest.mark.parametrize(("vlan_raw", "vlan"), [
+    ("INTERNET_GT_METRO VLAN 3740  /26", "3740"),
+    ("COMITÉ PROCIEGOS VLAN 1728 VRF PROCIEGOS", "1728"),
+    ("VLAN-976", "976"),
+    ("1010", "1010"),
+    ("UFINET-TIVOLI", ""),
+])
+def test_vlan_de_la_fila_de_red(vlan_raw, vlan):
+    from backend.services.excel_parser import IPBlock
+
+    assert IPBlock("10.0.0.0", 0, 7, 1, 1, 9, vlan_raw).vlan == vlan
+
+
+@pytest.mark.parametrize("etiqueta", ["GW", "GATEWAY", "Geteway", "gwy", "GWY", "IP GW"])
+def test_variantes_de_gateway(etiqueta):
+    from backend.services.excel_parser import GATEWAY_LABEL_RE
+
+    assert GATEWAY_LABEL_RE.search(etiqueta.upper())

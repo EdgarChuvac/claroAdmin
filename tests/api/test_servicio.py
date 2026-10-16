@@ -4,7 +4,7 @@ import io
 
 import openpyxl
 import pytest
-from conftest import OPERATOR
+from conftest import OPERATOR, SAMPLE_XLSX
 
 SHEET = "10.20.38.0"
 
@@ -24,8 +24,8 @@ def test_alta_imprime_region_y_chasis_desde_firestore(client):
                 chasis_id="DEMO-CH-01", chasis_slot="3", chasis_puerto="2")
     assert res.status_code == 200, res.text
     text = res.json()["formatted_text"]
-    assert "CHASIS: CHASIS DEMO 01 | ID FISICO DEMO-0001 | SLOT 3 | PUERTO 2" in text
-    assert "REGION METROPOLITANA" in text
+    assert "CHASIS DEMO 01 (ID DEMO-0001) S3|P2 ==> FO ==> (CLIENTE)" in text
+    assert "REGION" not in text  # la región se guarda en el alta, no se imprime
     alta = client.get(f"/api/altas/{res.json()['alta_id']}").json()
     assert alta["chasis_id"] == "DEMO-CH-01" and alta["region"] == "METROPOLITANA"
     assert alta["estado"] == "ACTIVA"
@@ -68,31 +68,31 @@ def test_si_falla_el_alta_no_queda_loopback_huerfana(client, repo, monkeypatch):
 
 def test_baja_de_servicio_libera_ips_loopback_y_marca_altas(client, repo):
     ips = _free_ips(client, 2)
-    assert client.post("/api/reservations", json={"ips": ips, "service_id": "S-BAJA", "cliente": "ACME"},
+    assert client.post("/api/reservations", json={"ips": ips, "service_id": "S-BAJA-1", "cliente": "ACME"},
                        headers=OPERATOR).status_code == 200
-    alta = _alta(client, "S-BAJA", loopback_auto=True, ip_wan=ips[0]).json()
+    alta = _alta(client, "S-BAJA-1", loopback_auto=True, ip_wan=ips[0]).json()
     before = client.get("/api/sheets").json()["details"]
     free_before = next(s for s in before if s["sheet"] == SHEET)["available_count"]
 
-    assert client.post("/api/services/S-BAJA/baja", json={"reason": "x"}, headers=OPERATOR).status_code == 422
-    assert client.post("/api/services/S-BAJA/baja", json={"reason": "cancelado"}).status_code == 400
-    res = client.post("/api/services/S-BAJA/baja", json={"reason": "Cancelado por el cliente"}, headers=OPERATOR)
+    assert client.post("/api/services/S-BAJA-1/baja", json={"reason": "x"}, headers=OPERATOR).status_code == 422
+    assert client.post("/api/services/S-BAJA-1/baja", json={"reason": "cancelado"}).status_code == 400
+    res = client.post("/api/services/S-BAJA-1/baja", json={"reason": "Cancelado por el cliente"}, headers=OPERATOR)
     assert res.status_code == 200, res.text
     body = res.json()
     assert body["ips"] == sorted(ips, key=lambda ip: int(ip.split(".")[-1]))
     assert body["loopbacks"] == [alta["loopback"]] and body["altas"] == [alta["alta_id"]]
 
-    servicio = client.get("/api/services/S-BAJA").json()
+    servicio = client.get("/api/services/S-BAJA-1").json()
     assert servicio["ips"] == [] and servicio["loopback"] is None
     assert servicio["altas"][0]["estado"] == "BAJA"
     after = client.get("/api/sheets").json()["details"]
     assert next(s for s in after if s["sheet"] == SHEET)["available_count"] == free_before + 2
     ip_doc = repo.col("ip_addresses").document(ips[0]).get().to_dict()
-    assert ip_doc["cliente"] is None and ip_doc["released_service_id"] == "S-BAJA"
+    assert ip_doc["cliente"] is None and ip_doc["released_service_id"] == "S-BAJA-1"
 
     # Sin nada activo: 404. Volver a registrar la misma alta crea una nueva (la anterior está de baja).
-    assert client.post("/api/services/S-BAJA/baja", json={"reason": "otra vez"}, headers=OPERATOR).status_code == 404
-    nueva = _alta(client, "S-BAJA", ip_wan=ips[0]).json()
+    assert client.post("/api/services/S-BAJA-1/baja", json={"reason": "otra vez"}, headers=OPERATOR).status_code == 404
+    nueva = _alta(client, "S-BAJA-1", ip_wan=ips[0]).json()
     assert nueva["duplicate"] is False and nueva["alta_id"] != alta["alta_id"]
 
 
@@ -107,11 +107,11 @@ def test_liberar_ip_borra_el_cliente(client, repo):
 
 def test_cliente_sobrevive_exportar_e_importar(client, repo):
     ip = _free_ips(client)[0]
-    client.post("/api/reservations", json={"ips": [ip], "service_id": "S-XLS", "cliente": "BANCO DEMO"},
+    client.post("/api/reservations", json={"ips": [ip], "service_id": "S-100", "cliente": "BANCO DEMO"},
                 headers=OPERATOR)
     exported = client.get("/api/inventory/export").content
     ws = openpyxl.load_workbook(io.BytesIO(exported))[SHEET]
-    assert "S-XLS BANCO DEMO" in [c.value for c in ws["B"]]
+    assert "S-100 BANCO DEMO" in [c.value for c in ws["B"]]
 
     files = {"file": ("inv.xlsx", exported,
                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
@@ -119,4 +119,30 @@ def test_cliente_sobrevive_exportar_e_importar(client, repo):
                       headers=OPERATOR)
     assert res.status_code == 200, res.text
     doc = repo.col("ip_addresses").document(ip).get().to_dict()
-    assert (doc["service_id"], doc["cliente"]) == ("S-XLS", "BANCO DEMO")
+    assert (doc["service_id"], doc["cliente"]) == ("S-100", "BANCO DEMO")
+
+
+def test_baja_rechaza_etiquetas_de_infraestructura(client):
+    res = client.post("/api/services/HSRP/baja", json={"reason": "limpieza"}, headers=OPERATOR)
+    assert res.status_code == 400 and "infraestructura" in res.json()["detail"]
+
+
+def test_importar_con_isla_no_registrada_no_escribe(client, repo):
+    antes = len(list(repo.col("inventory_imports").stream()))
+    files = {"file": ("inv.xlsx", SAMPLE_XLSX.read_bytes(),
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    res = client.post("/api/inventory/import", files=files, data={"isla": "NO EXISTE"}, headers=OPERATOR)
+    assert res.status_code == 404
+    assert len(list(repo.col("inventory_imports").stream())) == antes
+    assert all(not s["isla"] for s in client.get("/api/segments").json()["segments"])
+
+
+def test_exportar_no_inventa_ips_que_faltaban_en_el_excel(client, repo):
+    ip = _free_ips(client)[0]
+    repo.col("ip_addresses").document(ip).delete()  # como una fila ausente en el Excel original
+    exported = client.get("/api/inventory/export").content
+    files = {"file": ("inv.xlsx", exported,
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    res = client.post("/api/inventory/import", files=files, data={"mode": "merge"}, headers=OPERATOR)
+    assert res.status_code == 200 and res.json()["ips_written"] == 0
+    assert not repo.col("ip_addresses").document(ip).get().exists

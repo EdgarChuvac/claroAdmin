@@ -53,7 +53,7 @@
       "label": "DATOS",
       "linea1": "DATOS",
       "prefijo_linea2": "DATOS",
-      "banner": "DATOS CORPORATIVO",
+      "banner": "ENLACE DE DATOS",
       "item_principal": "DATOS LOCAL {velocidad}",
       "items_adicionales": [
         "ARRENDAMIENTO EQUIPO",
@@ -64,10 +64,13 @@
       "vrf_desc": "",
       "rd": "",
       "import_policy": "",
-      "export_policy": "",
+      "export_policy": "EXPORT_TO_NMIS_CLIENTES",
       "apply_label_per_instance": true,
       "traffic_policy": "",
-      "vpn_targets": [],
+      "vpn_targets": [
+        "6458:1150 import-extcommunity",
+        "6458:15200 import-extcommunity"
+      ],
       "pendiente_validar": true,
       "ip_publica": false
     }
@@ -84,7 +87,11 @@
     },
     "GPON": {
       "label": "G-PON",
-      "ruta": "G-PON"
+      "ruta": "FO",
+      "demarcador": "ONT",
+      "vrf_gestor": "DSL_ACCESO",
+      "vlan_gestor": "1698",
+      "desc_gestor": "GESTION_CORP_ ONT"
     }
   },
   "regiones": {
