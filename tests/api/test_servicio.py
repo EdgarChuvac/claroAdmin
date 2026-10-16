@@ -24,8 +24,8 @@ def test_alta_imprime_region_y_chasis_desde_firestore(client):
                 chasis_id="DEMO-CH-01", chasis_slot="3", chasis_puerto="2")
     assert res.status_code == 200, res.text
     text = res.json()["formatted_text"]
-    assert "CHASIS: CHASIS DEMO 01 | ID FISICO DEMO-0001 | SLOT 3 | PUERTO 2" in text
-    assert "REGION METROPOLITANA" in text
+    assert "CHASIS DEMO 01 (ID DEMO-0001) S3|P2 ==> FO ==> (CLIENTE)" in text
+    assert "REGION" not in text  # la región se guarda en el alta, no se imprime
     alta = client.get(f"/api/altas/{res.json()['alta_id']}").json()
     assert alta["chasis_id"] == "DEMO-CH-01" and alta["region"] == "METROPOLITANA"
     assert alta["estado"] == "ACTIVA"

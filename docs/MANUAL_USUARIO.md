@@ -113,6 +113,9 @@ También se capturan el equipo CPE extremo cliente y observaciones opcionales.
 
 * **Equipo demarcador** (Raisecom): aparece como `(CLIENTE) RAISECOM ...` en la línea de **RUTA A CONFIGURAR**. El tramo del medio sale de la pestaña Servicio.
 * **Observaciones de medio**: si escribe algo, se agrega debajo de la ruta.
+* **Gestión del demarcador** (VRF, VLAN, descripción, red, GW e IP): se imprime al inicio de *RECURSOS ASIGNADOS*. Al elegir el medio se llenan la VRF, la VLAN y la descripción por defecto (con G-PON: `DSL_ACCESO`, `1698`, `GESTION_CORP_ ONT`); red, GW e IP son del sitio y se escriben a mano.
+
+En la tabla de **Equipos extremo Claro**, la columna **Interfaz** (p. ej. `Eth-Trunk10 (G0/3/0, G0/3/3)` o `S1|P9`) se imprime después de la IP de cada equipo. Las **Observaciones de Ingeniería** de la pestaña Servicio se imprimen al final del alta, debajo del ID del servicio.
 
 ### 4.5 Pestaña Generar Formato: vista previa y registro
 

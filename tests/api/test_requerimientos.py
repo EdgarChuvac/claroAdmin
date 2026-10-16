@@ -75,16 +75,16 @@ def test_loopbacks_are_sequential_idempotent_and_preview_does_not_reserve(client
     preview = client.get("/api/loopbacks/next", params={"service_id": "S-1"}).json()
     assert preview == {"ip": "10.212.100.1", "cidr": "10.212.100.1/32", "assigned": False}
     text = client.post("/api/generate-format", json={"data": {"id_servicio": "S-1", "loopback_auto": True}}).json()
-    assert "LOOPBACK 10.212.100.1/32" in text["formatted_text"]
+    assert "LOOPBACK: 10.212.100.1/32" in text["formatted_text"]
     assert client.get("/api/loopbacks/next").json()["ip"] == "10.212.100.1"  # la vista previa no reserva
 
     first = _alta(client, "S-1", loopback_auto=True).json()
-    assert "LOOPBACK 10.212.100.1/32" in first["formatted_text"]
+    assert "LOOPBACK: 10.212.100.1/32" in first["formatted_text"]
     assert "LOOPBACK 5 :  10.212.100.1" in first["formatted_text"]
     again = _alta(client, "S-1", loopback_auto=True, observaciones="CAMBIO").json()
-    assert "LOOPBACK 10.212.100.1/32" in again["formatted_text"]  # el mismo servicio conserva su loopback
+    assert "LOOPBACK: 10.212.100.1/32" in again["formatted_text"]  # el mismo servicio conserva su loopback
     second = _alta(client, "S-2", loopback_auto=True).json()
-    assert "LOOPBACK 10.212.100.2/32" in second["formatted_text"]
+    assert "LOOPBACK: 10.212.100.2/32" in second["formatted_text"]
     assert client.get("/api/loopbacks/next", params={"service_id": "S-1"}).json()["assigned"] is True
     assert client.get(f"/api/altas/{second['alta_id']}").json()["loopback"] == "10.212.100.2"
 

@@ -420,7 +420,17 @@ Reglas del generador (`format_generator.generate_format_text`):
 * Si `vrf_name` queda vacío, se **omite** el bloque `ip vpn-instance`.
 * `export_policy` admite `{vrf_name}`; `vpn_targets` acepta `"6458:1 export-extcommunity"` o la línea completa `vpn-target ...`.
 * `pendiente_validar: true` muestra un aviso en la interfaz.
-* `network_defaults` alimenta gestor Raisecom, equipo CPE, tramo de enlace (`FO`) e ID de loopback.
+* `network_defaults` alimenta gestor Raisecom, equipo CPE e ID de loopback; cada medio puede definir su propia gestión (`vrf_gestor`, `vlan_gestor`, `desc_gestor`), la etiqueta del demarcador (`ONT`/`RAISECOM`) y el tramo de la ruta (`FO`).
+* Si la lista `vpn_targets` no incluye el RD, se anteponen `vpn-target <RD> export-extcommunity` e `import-extcommunity`.
+
+Estructura del texto (referencia en `tests/unit/data/alta_datos_gpon.txt`, verificada por `tests/unit/test_formato_alta.py`):
+
+1. `DISEÑO REALIZADO POR … | FECHA …` y el banner `ALTA DE <banner>`.
+2. El bloque de factibilidad pegado, tal cual (o `SIN FACTIBILIDAD`), y la línea de 86 asteriscos.
+3. `RUTA A CONFIGURAR`: `Sitio/Rol Marca Modelo Hostname (IP) Interfaz --> … --> Chasis (ID x) S|P ==> FO ==> (CLIENTE) Demarcador --> CPE`.
+4. `RECURSOS ASIGNADOS`: gestión del demarcador, IP WAN, IP pública (INTERNET), `LOOPBACK:`, `ISLA:` y `VLAN: n DESCRIPCION: …`, y el bloque `ip vpn-instance`.
+5. ID del servicio y Observaciones de Ingeniería.
+6. Si hay loopback, el bloque de monitoreo NMIS/ISE.
 
 Los archivos se validan con Pydantic al iniciar (`catalog.load_catalog`); un JSON inválido impide el arranque con un mensaje claro.
 

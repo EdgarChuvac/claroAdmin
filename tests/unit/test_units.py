@@ -30,13 +30,13 @@ def test_only_internet_and_datos_services():
     assert set(catalog.services) == {"INTERNET", "DATOS"}
     # Altas antiguas con el título largo siguen resolviendo a INTERNET.
     assert catalog.service("INTERNET CORPORATIVO").banner == "INTERNET CORPORATIVO"
-    assert catalog.service("DATOS").banner == "DATOS CORPORATIVO"
+    assert catalog.service("DATOS").banner == "ENLACE DE DATOS"
 
 
 def test_format_prints_only_filled_fields():
     text = generate_format_text({"titulo": "DATOS", "cliente": "X", "disenador": "ING", "fecha": "01-10-2026"})
     assert text.startswith("DISEÑO REALIZADO POR ING | FECHA 01-10-2026\n")
-    assert "ALTA DE DATOS CORPORATIVO" in text
+    assert "ALTA DE ENLACE DE DATOS" in text
     for absent in ("RECURSOS ASIGNADOS", "LOOPBACK", "ISLA", "VLAN", "PRE-SHARED KEY", "ip vpn-instance",
                    "ACEPTADO", "VELOCIDAD", "GESTOR_RAISECOM"):
         assert absent not in text
@@ -44,13 +44,13 @@ def test_format_prints_only_filled_fields():
 
 def test_sin_factibilidad_is_printed():
     text = generate_format_text({"sin_factibilidad": True})
-    assert "Factibilidad:\nSIN FACTIBILIDAD\n" in text
+    assert "SIN FACTIBILIDAD\n" in text
 
 
 def test_ip_publica_only_for_internet():
     internet = generate_format_text({"titulo": "INTERNET", "ip_publica": "203.0.113.0/29"})
     datos = generate_format_text({"titulo": "DATOS", "ip_publica": "203.0.113.0/29"})
-    assert "IP PUBLICA 203.0.113.0/29" in internet
+    assert "IP PUBLICA: 203.0.113.0/29" in internet
     assert "IP PUBLICA" not in datos
 
 
@@ -68,7 +68,7 @@ def test_route_follows_numbering_and_medio():
         "ips_adicionales": ["10.0.0.3"],
     })
     assert ("PE HUAWEI NE40E PE-1 (192.0.2.1) --> SW HUAWEI ATN980C SW-1 (192.0.2.2) "
-            "==> G-PON ==> (CLIENTE) RAISECOM RAX711-L --> CPE-1") in text
+            "==> FO ==> (CLIENTE) RAISECOM RAX711-L --> CPE-1") in text
     assert "OBSERVACIONES DE MEDIO: TENDIDO NUEVO" in text
     assert "10.0.0.3    ADICIONAL" in text
 
@@ -87,7 +87,7 @@ def test_monitoring_block_replaces_psk_field():
         "EQUIPO: CPE-9\n"
         "PRE-SHARED KEY: PSK-CONFIG"
     )
-    assert "LOOPBACK 10.212.100.7/32" in text
+    assert "LOOPBACK: 10.212.100.7/32" in text
     assert "IGNORADA" not in text
 
 

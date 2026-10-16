@@ -57,6 +57,12 @@ class Medio(BaseModel):
     ruta: str
     # Con este medio se elige el chasis de la isla (puerto de transmisión).
     usa_chasis: bool = False
+    # Etiqueta del equipo demarcador en la gestión (``10.103.104.91    ONT``).
+    demarcador: str = "RAISECOM"
+    # Gestión por defecto del demarcador con este medio (vacío = network_defaults).
+    vrf_gestor: str = ""
+    vlan_gestor: str = ""
+    desc_gestor: str = ""
 
 
 class Region(BaseModel):
@@ -87,7 +93,7 @@ class Central(BaseModel):
 DEFAULT_MEDIOS = {
     "FIBRA": Medio(label="FIBRA ÓPTICA", ruta="FO", usa_chasis=True),
     "RADIO": Medio(label="RADIOENLACE", ruta="RADIO"),
-    "GPON": Medio(label="G-PON", ruta="G-PON"),
+    "GPON": Medio(label="G-PON", ruta="FO", demarcador="ONT"),
 }
 
 DEFAULT_REGIONES = {
