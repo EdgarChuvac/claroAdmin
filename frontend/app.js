@@ -515,12 +515,20 @@ async function loadInventory() {
       : "Inventario vacío: importe un Excel";
     badge.classList.toggle("empty", !state.sheets.length);
     badge.classList.remove("error");
-    await loadIslas();
+    await Promise.all([loadIslas(), loadIslasDatalist()]);
   } catch (err) {
     badge.classList.add("error");
     $("inventory-status").textContent = "Error al conectar con Firebase";
     showError(err, "No se pudo cargar el inventario");
   }
+}
+
+// Importar y «🏷 Isla» solo aceptan islas registradas: se sugieren las de todas las regiones.
+async function loadIslasDatalist() {
+  const regiones = Object.keys((state.config && state.config.regiones) || {});
+  const respuestas = await Promise.all(regiones.map(r => api(`/api/islas?region=${encodeURIComponent(r)}`)));
+  const islas = [...new Set(respuestas.flatMap(r => r.islas))].sort();
+  $("islas-datalist").replaceChildren(...islas.map(i => el("option", { value: i })));
 }
 
 async function loadIslas(preferred) {
@@ -530,7 +538,6 @@ async function loadIslas(preferred) {
   const before = select.value;
   const current = preferred !== undefined ? preferred : before;
   select.replaceChildren(new Option(region ? "Cargando islas..." : "Seleccione primero la región", ""));
-  $("islas-datalist").replaceChildren();
   await onIslaChange();
   if (!region) return;
   let data;
@@ -545,7 +552,6 @@ async function loadIslas(preferred) {
   const options = [new Option("Seleccione la isla / central", ""), ...data.islas.map(i => new Option(i, i))];
   if (data.has_unassigned) options.push(new Option("(Segmentos sin isla asignada)", NO_ISLA));
   select.replaceChildren(...options);
-  $("islas-datalist").replaceChildren(...data.islas.map(i => el("option", { value: i })));
   if ([...select.options].some(o => o.value === current)) select.value = current;
   await onIslaChange({ keepSelection: select.value === before });
 }

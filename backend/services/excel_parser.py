@@ -20,7 +20,8 @@ from typing import Any, Dict, List, Union
 
 import openpyxl
 
-GATEWAY_LABEL_RE = re.compile(r"(^|[^A-Z0-9])(GW|GATEWAY)([^A-Z0-9]|$)")
+# GW, GWY, GATEWAY y las variantes mal escritas que aparecen en los Excel (GETEWAY, GATWAY).
+GATEWAY_LABEL_RE = re.compile(r"(^|[^A-Z0-9])(GWY?|G[AE]TE?WAY)([^A-Z0-9]|$)")
 FREE_LABELS = {
     "",
     "NONE",
@@ -31,14 +32,36 @@ FREE_LABELS = {
     "AVAILABLE"
 }
 
+SHEET_BASE_RE = re.compile(r"(?<![\d.])(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(0|[xX])(?![\d.])")
+
+
 def normalize_sheet_name(sheet_name: str) -> Union[str, None]:
-    """Devuelve la red base /24 normalizada (``10.20.38.0``) o None si no es válida."""
+    """Devuelve la red base /24 normalizada (``10.20.38.0``) o None si no es válida.
+
+    Acepta los nombres que se usan en los Excel reales: ``10.20.38.0``,
+    ``10.20.38.X``, ``TIVOLI - 10.20.38.0`` o ``10.20.38.0 - TIV`` (el texto
+    extra se ignora; la isla se indica al importar).
+    """
+    matches = SHEET_BASE_RE.findall(str(sheet_name))
+    if len(matches) != 1:
+        return None
     try:
-        address = IPv4Address(str(sheet_name).strip())
+        address = IPv4Address(".".join((*matches[0][:3], "0")))
     except ValueError:
         return None
-    text = str(address)
-    return text if text.endswith(".0") else None
+    return str(address)
+
+
+def split_service_label(label: str) -> tuple[str, str]:
+    """``"1282900001T HILOS Y ALGODON, S.A."`` -> (ID, cliente).
+
+    Solo se separa si la primera palabra parece un ID (tiene algún dígito);
+    etiquetas como ``HSRP`` o ``MINISTERIO PUBLICO`` quedan completas como ID.
+    """
+    parts = label.split(None, 1)
+    if len(parts) == 2 and any(ch.isdigit() for ch in parts[0]):
+        return parts[0], parts[1].strip()
+    return " ".join(label.split()), ""
 
 
 class IPBlock:
@@ -53,8 +76,10 @@ class IPBlock:
         self.end_row = end_row
         self.vlan_raw = vlan_raw.strip() if vlan_raw else ""
 
-        # Extract VLAN number if possible
-        vlan_match = re.search(r'\b(\d{1,5})\b', self.vlan_raw)
+        # VLAN: el número tras "VLAN" (``INTERNET_GT_METRO VLAN 3740 /26``) o, si
+        # no lo hay, el primer número suelto de la etiqueta.
+        vlan_match = (re.search(r'VLAN\s*-?\s*(\d{1,4})\b', self.vlan_raw, re.IGNORECASE)
+                      or re.search(r'(?<![/\d])\b(\d{1,4})\b(?!\.\d)', self.vlan_raw))
         self.vlan = vlan_match.group(1) if vlan_match else ""
 
         if not 0 <= network_octet <= broadcast_octet <= 255:
@@ -240,12 +265,12 @@ class ExcelIPAMReader:
                                     })
                                 else:
                                     # Ocupada: "ID_SERVICIO" o "ID_SERVICIO NOMBRE DEL CLIENTE".
-                                    parts = h_str.split(None, 1)
+                                    service_id, customer_name = split_service_label(h_str)
                                     block.assigned_ips.append({
                                         "octet": h_octet,
                                         "ip": h_ip,
-                                        "id": parts[0],
-                                        "customer_name": parts[1].strip() if len(parts) > 1 else "",
+                                        "id": service_id,
+                                        "customer_name": customer_name,
                                         "row": host_r,
                                         "status": "OCUPADA",
                                     })
