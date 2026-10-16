@@ -431,7 +431,6 @@ async function loadConfig() {
   $("m-gw-gestor").value = d.gw_gestor || "";
   $("m-ip-gestor").value = d.ip_gestor_raisecom || "";
   applyMedioGestion();
-  $("s-equipo").value = d.equipo_cpe;
   $("eq-loopback").placeholder = `Asignada por el sistema (${d.loopback_pool_start} - ${d.loopback_pool_end} /32)`;
 
   renderCentralPresets();
@@ -1199,7 +1198,6 @@ function collectFormData() {
     chasis_id: usaChasis ? $("s-chasis").value : "",
     chasis_slot: usaChasis ? $("s-chasis-slot").value : "",
     chasis_puerto: usaChasis ? $("s-chasis-puerto").value : "",
-    equipo_cpe: $("s-equipo").value,
     observaciones: $("s-observaciones").value,
     isla: selectedIsla(),
     vlan_num: vlanForData(),
