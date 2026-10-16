@@ -19,7 +19,7 @@
       "isla": "MONTE VERDE",
       "demo": true,
       "equipos": [
-        {"no": "1", "rol": "PE", "marca": "HUAWEI", "modelo": "NE40E-X8A", "hostname": "PE-DEMO-03", "ip_admon": "198.51.100.10", "int_in": "", "int_out": ""},
+        {"no": "1", "rol": "PE", "marca": "HUAWEI", "modelo": "NE40E-X", "hostname": "PE-DEMO-03", "ip_admon": "198.51.100.10", "int_in": "", "int_out": ""},
         {"no": "2", "rol": "SW", "marca": "HUAWEI", "modelo": "ATN 980C", "hostname": "SW-DEMO-02", "ip_admon": "198.51.100.11", "int_in": "", "int_out": "Eth-Trunk3"},
         {"no": "3", "rol": "SW", "marca": "CTC", "modelo": "FRM220A-02", "hostname": "SW-DEMO-03", "ip_admon": "198.51.100.12", "int_in": "", "int_out": "S11|P2"}
       ]
