@@ -155,6 +155,8 @@ En **🔎 Consultas**, busque el ID de servicio y pulse **Dar de baja el servici
 
 ## 6. Importar el inventario desde Excel
 
+> Las hojas pueden llamarse `10.78.163.0`, `10.18.57.X`, `TIVOLI - 10.78.163.0` o `10.78.151.0 - TIV`. La **isla** que indique al importar debe existir en la topología (si no, la importación se rechaza sin escribir nada). Las IPs rotuladas `HSRP`, `OCC`, etc. se importan como ocupadas con esa etiqueta y no se pueden dar de baja como servicio: libérelas una por una.
+
 Use **Importar Excel a Firebase** en la cabecera.
 
 ![Importación con resumen y conflictos](img/13_importar.png)

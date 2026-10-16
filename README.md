@@ -258,7 +258,7 @@ gcloud run deploy claro-admin \
    python -m scripts.import_excel "Inventario IPs.xlsx" --operator "Nombre Apellido" --mode replace --yes
    ```
 
-   Formato esperado del Excel: una hoja por segmento /24 cuyo nombre es la red base terminada en `.0` (`10.20.38.0`; se toleran espacios); columnas en pares *octeto | etiqueta*; la fila de red lleva la VLAN, el gateway se rotula `GW`, el bloque cierra con `BROADCAST`; celdas vacías o `-` = IP libre; cualquier otro texto = `ID_SERVICIO` seguido opcionalmente del nombre del cliente (`SRV-001 BANCO DEMO`). Las hojas con otro nombre se ignoran y se informan.
+   Formato esperado del Excel: una hoja por segmento /24 cuyo nombre contiene la red base (`10.20.38.0`, `10.20.38.X`, `TIVOLI - 10.20.38.0` o `10.20.38.0 - TIV`; el texto extra se ignora y la isla se indica al importar, y debe estar registrada en la topología); columnas en pares *octeto | etiqueta*; la fila de red lleva la VLAN, el gateway se rotula `GW`, el bloque cierra con `BROADCAST`; celdas vacías o `-` = IP libre; cualquier otro texto = `ID_SERVICIO` seguido opcionalmente del nombre del cliente (`1282900001T HILOS Y ALGODON, S.A.`); la etiqueta solo se separa si la primera palabra tiene algún dígito, así que `HSRP` o `MINISTERIO PUBLICO` quedan completas como ID. El gateway se reconoce también como `GWY`, `Geteway` o `GATEWAY`, y la VLAN es el número que sigue a `VLAN` en la fila de red (`INTERNET_GT_METRO VLAN 3740 /26`). Las hojas con otro nombre se ignoran y se informan.
 
 2. **Catálogo de centrales:** edite `config/centrales.json` con los equipos reales (el archivo trae datos de demostración marcados `"demo": true`) y cárguelo:
 

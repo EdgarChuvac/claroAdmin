@@ -25,6 +25,19 @@ logger = logging.getLogger("claro.api")
 FRONTEND_DIR = BASE_DIR / "frontend"
 
 
+class FrontendFiles(StaticFiles):
+    """Frontend sin build: el navegador debe revalidar siempre (ETag → 304).
+
+    Sin esto, tras una actualización el navegador puede mezclar un ``index.html``
+    y un ``app.js`` de versiones distintas y la pantalla falla al arrancar.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -43,7 +56,7 @@ def create_app() -> FastAPI:
     application.include_router(api_router)
     # El frontend estático se monta al final para no tapar las rutas /api.
     if FRONTEND_DIR.is_dir():
-        application.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
+        application.mount("/", FrontendFiles(directory=FRONTEND_DIR, html=True), name="static")
     return application
 
 

@@ -15,13 +15,17 @@ def test_sheet_isla_filters_segments(client):
     unassigned = client.get("/api/segments", params={"isla": ""}).json()["segments"]
     assert unassigned and all(not s["isla"] for s in unassigned)
 
-    res = client.put(f"/api/sheets/{SHEET}/isla", json={"isla": "  el carmen "}, headers=OPERATOR)
+    # Solo se aceptan islas registradas en la topología.
+    res = client.put(f"/api/sheets/{SHEET}/isla", json={"isla": "NO REGISTRADA"}, headers=OPERATOR)
+    assert res.status_code == 404 and "Regístrela" in res.json()["detail"]
+
+    res = client.put(f"/api/sheets/{SHEET}/isla", json={"isla": "  carmen "}, headers=OPERATOR)
     assert res.status_code == 200, res.text
-    assert res.json()["isla"] == "EL CARMEN"
+    assert res.json()["isla"] == "CARMEN"
 
     islas = client.get("/api/islas").json()["islas"]
-    assert "EL CARMEN" in islas
-    segments = client.get("/api/segments", params={"isla": "El Carmen"}).json()["segments"]
+    assert "CARMEN" in islas
+    segments = client.get("/api/segments", params={"isla": "Carmen"}).json()["segments"]
     assert segments and {s["sheet"] for s in segments} == {SHEET}
     assert all("available_ips" not in s for s in segments)
     assert client.get("/api/segments", params={"isla": "OTRA"}).json()["segments"] == []

@@ -141,3 +141,11 @@ def test_concurrent_identical_altas_create_one(client):
         results = list(pool.map(lambda _: client.post("/api/altas", json=payload, headers=OPERATOR).json(), range(6)))
     assert len({r["alta_id"] for r in results}) == 1
     assert sum(not r["duplicate"] for r in results) == 1
+
+
+def test_frontend_se_revalida_siempre(client):
+    """Evita que el navegador mezcle index.html y app.js de versiones distintas."""
+    for path in ("/", "/app.js", "/style.css"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
