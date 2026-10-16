@@ -83,7 +83,7 @@ En **Topología de Transporte**:
 3. **Medio de transmisión** (**FIBRA ÓPTICA** por defecto, **RADIOENLACE** o **G-PON**). El medio aparece en la ruta (`FO`, `RADIO` o `G-PON`). Cambiar la isla ya no borra el medio elegido.
 4. Con **FIBRA ÓPTICA** aparece **Chasis**: elija el chasis de la isla y, si el chasis los tiene registrados, el **Slot** y el **Puerto**. En el alta se imprime la línea `CHASIS: nombre | ID FISICO … | SLOT … | PUERTO …` debajo de la ruta. Si la isla no tiene chasis registrados, deje **SIN CHASIS**.
 
-También se capturan el equipo CPE extremo cliente y observaciones opcionales.
+También se capturan observaciones opcionales. El equipo CPE extremo cliente no se pide: el alta usa siempre el de `network_defaults.equipo_cpe` en `config/service_templates.json` (hoy `CISCO C921`).
 
 ### 4.3 Pestaña Equipamiento: isla, VLAN e IPs
 
