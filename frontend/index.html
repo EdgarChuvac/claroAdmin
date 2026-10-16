@@ -281,11 +281,12 @@
               <thead>
                 <tr>
                   <th style="width: 50px;">No.</th>
-                  <th style="width: 70px;">Rol</th>
+                  <th style="width: 140px;">Sitio / Rol</th>
                   <th style="width: 100px;">Marca</th>
                   <th style="width: 120px;">Modelo</th>
                   <th>Hostname</th>
                   <th style="width: 150px;">IP Admon.</th>
+                  <th style="width: 150px;">Interfaz</th>
                   <th style="width: 60px;">Acción</th>
                 </tr>
               </thead>
@@ -302,8 +303,33 @@
         <div class="card-header"><h3>Detalles de Medio Físico y Enlace</h3></div>
         <div class="card-body grid-2">
           <div class="form-group">
-            <label>Equipo Óptico Demarcador (Raisecom):</label>
+            <label for="m-raisecom">Equipo demarcador (Raisecom / ONT):</label>
             <input type="text" id="m-raisecom" value="">
+          </div>
+          <div class="form-group"></div>
+          <div class="form-group">
+            <label for="m-vrf-gestor">VRF de gestión:</label>
+            <input type="text" id="m-vrf-gestor" maxlength="60">
+          </div>
+          <div class="form-group">
+            <label for="m-vlan-gestor">VLAN de gestión:</label>
+            <input type="text" id="m-vlan-gestor" maxlength="4">
+          </div>
+          <div class="form-group">
+            <label for="m-desc-gestor">Descripción de la gestión:</label>
+            <input type="text" id="m-desc-gestor" maxlength="60" placeholder="Ej.: GESTION_CORP_ ONT">
+          </div>
+          <div class="form-group">
+            <label for="m-red-gestor">Red de gestión:</label>
+            <input type="text" id="m-red-gestor" maxlength="20" placeholder="10.103.104.0/24">
+          </div>
+          <div class="form-group">
+            <label for="m-gw-gestor">GW de gestión:</label>
+            <input type="text" id="m-gw-gestor" maxlength="15">
+          </div>
+          <div class="form-group">
+            <label for="m-ip-gestor">IP de gestión del demarcador:</label>
+            <input type="text" id="m-ip-gestor" maxlength="15">
           </div>
           <div class="form-group col-span-2">
             <label>Observaciones de Planta Externa / Medio (opcional, se agrega bajo la ruta):</label>

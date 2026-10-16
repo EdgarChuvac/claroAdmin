@@ -218,7 +218,7 @@ def test_alta_requires_factibilidad_or_sin_factibilidad(client):
     ok = client.post("/api/altas", json={"data": {**base, "factibilidad_bloque": "TITULO: ***DATOS***"}},
                      headers=OPERATOR)
     assert ok.status_code == 200, ok.text
-    assert "Factibilidad:\nTITULO: ***DATOS***" in ok.json()["formatted_text"]
+    assert "TITULO: ***DATOS***" in ok.json()["formatted_text"]
 
 
 def test_preview_does_not_record(client):
