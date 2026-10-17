@@ -1,16 +1,14 @@
 {
-  "_descripcion": "Catálogo de centrales y rutas de equipos extremo Claro. DATOS DE DEMOSTRACIÓN: reemplace con el inventario real y cárguelo a Firestore con 'python -m scripts.seed_centrales'. Mientras la colección 'centrales' de Firestore esté vacía, la aplicación usa este archivo.",
   "centrales": [
     {
-      "id": "el-carmen",
-      "nombre": "Central El Carmen",
-      "isla": "CARMEN",
+      "id": "sayaxche",
+      "nombre": "Central sayaxche",
+      "isla": "sayaxche",
       "demo": true,
       "equipos": [
-        {"no": "1", "rol": "PE", "marca": "HUAWEI", "modelo": "NE40E", "hostname": "PE-DEMO-01", "ip_admon": "192.0.2.10", "int_in": "", "int_out": ""},
-        {"no": "2", "rol": "PE", "marca": "HUAWEI", "modelo": "NE40E", "hostname": "PE-DEMO-02", "ip_admon": "192.0.2.11", "int_in": "", "int_out": ""},
-        {"no": "3", "rol": "SW", "marca": "HUAWEI", "modelo": "ATN980C", "hostname": "SW-DEMO-01", "ip_admon": "192.0.2.12", "int_in": "", "int_out": "Eth-Trunk12"},
-        {"no": "4", "rol": "TRÁFICO", "marca": "CTC", "modelo": "FRM220A-07", "hostname": "TRAFICO-DEMO-01", "ip_admon": "192.0.2.13", "int_in": "", "int_out": "S15|P2"}
+        {"no": "1", "rol": "PE SAYAXCHE", "hostname": "PSAYGTSAN1C1A08A03EIM2", "marca": "HUAWEI", "modelo": "NE40E-X8A", "ip_admon": "10.179.28.72", "int_in": "", "int_out": ""},
+        {"no": "2", "rol": "WS SAYAXCHE", "marca": "HUAWEI", "modelo": "ATN 910D", "hostname": "PSAYGTSAN1D1A02A12F8M3", "ip_admon": "10.87.224.20", "int_in": "", "int_out": "Eth-Trunk12 <GE0/2/6|GE0/2/7>"},
+        {"no": "3", "rol": "TRÁFICO", "marca": "CTC-UNION", "modelo": "FRM220A-01", "hostname": "SAYAXCHE", "ip_admon": "10.87.17.250", "int_in": "", "int_out": "<SLOT 1|PUERTO 2>"}
       ]
     },
     {
@@ -19,9 +17,9 @@
       "isla": "MONTE VERDE",
       "demo": true,
       "equipos": [
-        {"no": "1", "rol": "PE", "marca": "HUAWEI", "modelo": "NE40E-X", "hostname": "PE-DEMO-03", "ip_admon": "198.51.100.10", "int_in": "", "int_out": ""},
-        {"no": "2", "rol": "SW", "marca": "HUAWEI", "modelo": "ATN 980C", "hostname": "SW-DEMO-02", "ip_admon": "198.51.100.11", "int_in": "", "int_out": "Eth-Trunk3"},
-        {"no": "3", "rol": "SW", "marca": "CTC", "modelo": "FRM220A-02", "hostname": "SW-DEMO-03", "ip_admon": "198.51.100.12", "int_in": "", "int_out": "S11|P2"}
+        {"no": "1", "rol": "PE", "hostname": "MONTE VERDE", "marca": "HUAWEI", "modelo": "NE40E-X GMIXGGMIXGTMVN1T1B03B02EIM4", "ip_admon": "10.179.28.14", "int_in": "", "int_out": ""},
+        {"no": "2", "rol": "SW", "hostname": "MOLINO DE LAS FLORES UR", "marca": "HUAWEI", "modelo": "ATN 980C GMIXGTMFN1D1B02A271BM5", "ip_admon": "10.174.171.46", "int_in": "", "int_out": "Eth-Trunk4 GE0/4/8|GE0/4/9"},
+        {"no": "3", "rol": "CHASIS", "hostname": "MOLINO DE LAS FLORES", "marca": "CTC-UNION", "modelo": "FRM220A-04 GMIXGTMFN1D1B03A25AHA3", "ip_admon": "10.87.242.246", "int_in": "", "int_out": "S1|P1"}
       ]
     }
   ]
