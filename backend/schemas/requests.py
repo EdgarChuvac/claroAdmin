@@ -61,6 +61,7 @@ class EquipmentData(BaseModel):
     ip_admon: str = ""
     int_in: str = ""
     int_out: str = ""
+    lado: str = "CLARO"
 
 class FormatData(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -149,6 +150,7 @@ class VlanRequest(BaseModel):
     vrf_name: str = Field(default="", max_length=80)
     vrf_desc: str = Field(default="", max_length=120)
     vlan_desc: str = Field(default="", max_length=120)
+    config: str = Field(default="", max_length=500)
 
 class ServiceBajaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -184,4 +186,15 @@ class ChasisRequest(BaseModel):
     ip_admon: str = Field(default="", max_length=45)
     slots: list[str] = Field(default_factory=list, max_length=64)
     puertos: list[str] = Field(default_factory=list, max_length=256)
+    equipos_ruta: list[str] = Field(default_factory=list, max_length=64)
     activo: bool = True
+
+    @field_validator("equipos_ruta")
+    @classmethod
+    def _valid_equipment_numbers(cls, value: list[str]) -> list[str]:
+        numbers = [number.strip() for number in value]
+        if any(not number.isdigit() for number in numbers):
+            raise ValueError("Los números de equipos de la ruta deben ser numéricos.")
+        if len(numbers) != len(set(numbers)):
+            raise ValueError("La ruta no puede repetir números de equipo.")
+        return numbers

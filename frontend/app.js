@@ -18,6 +18,7 @@ const state = {
   registeredAlta: null,          // { alta_id, text } del último registro vigente
   releaseTarget: null,
   bajaTarget: null,
+  bajaAltaTarget: null,
   sinFactibilidad: false,
   islaSegments: [],     // subredes de la isla seleccionada (sin detalle de IPs)
   vlanCatalog: [],      // datos guardados (RD, VRF, descripciones) de las VLAN de la isla
@@ -87,6 +88,7 @@ async function onMedioChange() {
   applyMedioGestion();
   markFormatStale();
   await loadChasisForIsla();
+  await loadEquiposRutaChasis();
 }
 
 function selectedChasis() {
@@ -95,20 +97,61 @@ function selectedChasis() {
 
 function fillChasisPorts() {
   const chasis = selectedChasis();
-  for (const [id, field, label] of [["s-chasis-slot", "slots", "Slot"], ["s-chasis-puerto", "puertos", "Puerto"]]) {
-    const select = $(id);
-    const previous = select.value;
-    const values = chasis ? chasis[field] || [] : [];
-    select.replaceChildren(new Option(values.length ? label : `${label} (sin datos)`, ""),
-      ...values.map(v => new Option(`${label} ${v}`, v)));
-    select.disabled = !values.length;
-    if (values.includes(previous)) select.value = previous;
+  const slotSelect = $("s-chasis-slot"), portSelect = $("s-chasis-puerto");
+  const previousSlot = slotSelect.value, previousPort = portSelect.value;
+  // Firestore puede guardar los valores como números, pero los <select> usan strings.
+  const slots = chasis ? (chasis.slots || []).map(String) : [];
+  const ports = chasis ? (chasis.puertos || []).map(String) : [];
+  const occupied = chasis ? chasis.ocupaciones || [] : [];
+  slotSelect.replaceChildren(new Option(slots.length ? "Slot" : "Slot (sin datos)", ""),
+    ...slots.map(v => {
+      const full = ports.length > 0 && ports.every(p => occupied.some(o => String(o.slot) === v && String(o.puerto) === p));
+      const option = new Option(`Slot ${v}${full ? " (OCUPADO)" : ""}`, v);
+      option.disabled = full;
+      return option;
+    }));
+  slotSelect.disabled = !slots.length;
+  if (slots.includes(previousSlot)) slotSelect.value = previousSlot;
+  portSelect.replaceChildren(new Option(ports.length ? "Puerto" : "Puerto (sin datos)", ""),
+    ...ports.map(v => {
+      const isOccupied = occupied.some(o => String(o.slot) === slotSelect.value && String(o.puerto) === v);
+      const option = new Option(`Puerto ${v}${isOccupied ? " (OCUPADO)" : ""}`, v);
+      option.disabled = isOccupied;
+      return option;
+    }));
+  portSelect.disabled = !ports.length || !slotSelect.value;
+  if (ports.includes(previousPort) && !occupied.some(o => String(o.slot) === slotSelect.value && String(o.puerto) === previousPort)) {
+    portSelect.value = previousPort;
   }
 }
 
-function onChasisChange() {
+function onChasisSlotChange() {
+  $("s-chasis-puerto").value = "";
   fillChasisPorts();
   markFormatStale();
+}
+
+async function onChasisChange() {
+  fillChasisPorts();
+  markFormatStale();
+  await loadEquiposRutaChasis();
+}
+
+async function loadEquiposRutaChasis() {
+  const chasisId = $("s-chasis").value;
+  if (!chasisId) {
+    renderEquipmentRows([], "Seleccione el chasis para cargar su ruta desde Firebase.");
+    return;
+  }
+  $("equipment-source").textContent = "Consultando la ruta del chasis en Firebase...";
+  try {
+    const result = await api(`/api/equipos?${new URLSearchParams({ chasis_id: chasisId })}`);
+    if ($("s-chasis").value !== chasisId) return;
+    renderEquipmentRows(result.equipos || [], "El chasis no tiene números de ruta configurados en Firebase.");
+  } catch (err) {
+    if ($("s-chasis").value === chasisId) renderEquipmentRows([], "No se pudo cargar la ruta desde Firebase.");
+    showError(err, "No se pudo cargar la ruta de equipos del chasis");
+  }
 }
 
 async function loadChasisForIsla() {
@@ -139,6 +182,12 @@ async function loadChasisForIsla() {
       fillChasisPorts();
     }
   }
+}
+
+async function refreshSelectedChasisAvailability() {
+  if (!$('s-chasis').value) return;
+  await loadChasisForIsla();
+  fillChasisPorts();
 }
 
 // ===========================================================================
@@ -433,25 +482,7 @@ async function loadConfig() {
   applyMedioGestion();
   $("eq-loopback").placeholder = `Asignada por el sistema (${d.loopback_pool_start} - ${d.loopback_pool_end} /32)`;
 
-  renderCentralPresets();
   applyServiceTemplate(select.value);
-}
-
-function renderCentralPresets() {
-  const container = $("centrales-presets");
-  const centrales = state.config ? state.config.centrales : [];
-  container.replaceChildren(...centrales.map(c =>
-    el("button", { type: "button", class: "btn btn-sm btn-outline", title: c.demo ? "Datos de demostración" : c.isla, onclick: () => loadCentral(c.id) },
-      c.nombre, c.demo ? " (demo)" : "")
-  ));
-}
-
-function loadCentral(centralId) {
-  const central = state.config.centrales.find(c => c.id === centralId);
-  if (!central) return;
-  $("equipment-tbody").replaceChildren();
-  central.equipos.forEach(eq => addEquipmentRow(eq));
-  markFormatStale();
 }
 
 function currentTemplate() {
@@ -559,38 +590,35 @@ async function onIslaChange({ keepSelection = false } = {}) {
   const requestId = ++state.inventoryRequestId;
   const isla = $("eq-isla").value;
   if (!keepSelection) markFormatStale();
-  loadChasisForIsla();
+  $("equipment-tbody").replaceChildren();
+  $("equipment-source").textContent = isla ? "Cargando chasis y ruta desde Firebase..." : "Seleccione una isla y un chasis para cargar la ruta.";
+  await loadChasisForIsla();
   const previousVlan = keepSelection ? state.currentVlan : "";
   state.islaSegments = [];
   state.vlanCatalog = [];
   if (!isla) {
+    renderEquipmentRows([]);
     fillVlanSelect();
     clearIPAMSelection("Seleccione primero la isla");
     $("ipam-sheet-select").replaceChildren(new Option("Seleccione primero la isla", ""));
     updateGenerationAvailability();
     return;
   }
-  if (!keepSelection) loadCentralForIsla(isla);
+  await loadEquiposRutaChasis();
   try {
     const islaParam = encodeURIComponent(selectedIsla());
     const [segments, vlans] = await Promise.all([
       api(`/api/segments?isla=${islaParam}`),
-      selectedIsla() ? api(`/api/vlans?isla=${islaParam}`) : Promise.resolve({ vlans: [] }),
+      api("/api/vlans"),
     ]);
     if (requestId !== state.inventoryRequestId) return;
     state.islaSegments = segments.segments || [];
     state.vlanCatalog = vlans.vlans || [];
   } catch (err) {
-    showError(err, "No se pudieron cargar los segmentos de la isla");
+    showError(err, "No se pudieron cargar los datos de la isla");
   }
   fillVlanSelect(previousVlan);
   await onVlanChange({ keepSelection });
-}
-
-function loadCentralForIsla(isla) {
-  if (!state.config) return;
-  const central = state.config.centrales.find(c => (c.isla || "").toUpperCase() === isla.toUpperCase());
-  if (central) loadCentral(central.id);
 }
 
 function fillVlanSelect(preferred = "") {
@@ -600,7 +628,10 @@ function fillVlanSelect(preferred = "") {
     if (!seg.vlan) continue;
     free[seg.vlan] = (free[seg.vlan] || 0) + (seg.available_count || 0);
   }
-  for (const v of state.vlanCatalog) if (!(v.vlan in free)) free[v.vlan] = null;
+  const currentIsla = selectedIsla().toUpperCase();
+  for (const v of state.vlanCatalog) {
+    if ((v.isla || "").toUpperCase() === currentIsla && !(v.vlan in free)) free[v.vlan] = null;
+  }
   
   // INTERNET usa solo la VLAN de Internet de la región; DATOS nunca las ofrece.
   const tpl = currentTemplate();
@@ -663,15 +694,17 @@ function vlanForData() {
 // RD, VRF y descripciones: lo guardado para la VLAN; si no hay nada, la plantilla del servicio.
 function fillVlanData() {
   const vlan = vlanForData();
-  const saved = state.vlanCatalog.find(v => v.vlan === vlan);
+  const saved = state.vlanCatalog.find(v => v.vlan === vlan && (v.isla || "").toUpperCase() === selectedIsla().toUpperCase())
+    || state.vlanCatalog.find(v => v.vlan === vlan && v.config);
   const tpl = currentTemplate();
   const values = saved
-    ? { rd: saved.rd, vrf_name: saved.vrf_name, vrf_desc: saved.vrf_desc, vlan_desc: saved.vlan_desc }
-    : { rd: tpl ? tpl.rd : "", vrf_name: tpl ? tpl.vrf_name : "", vrf_desc: tpl ? tpl.vrf_desc : "", vlan_desc: "" };
+    ? { rd: saved.rd, vrf_name: saved.vrf_name, vrf_desc: saved.vrf_desc, vlan_desc: saved.vlan_desc, config: saved.config }
+    : { rd: tpl ? tpl.rd : "", vrf_name: tpl ? tpl.vrf_name : "", vrf_desc: tpl ? tpl.vrf_desc : "", vlan_desc: "", config: "" };
   $("eq-rd").value = values.rd || "";
   $("eq-vrf-name").value = values.vrf_name || "";
   $("eq-vrf-desc").value = values.vrf_desc || "";
   $("eq-desc-vlan").value = values.vlan_desc || "";
+  $("eq-config").value = values.config || "";
   $("vlan-data-status").textContent = !vlan ? "" : saved
     ? `Datos guardados de la VLAN ${vlan}${saved.updated_by ? ` (por ${saved.updated_by})` : ""}.`
     : `La VLAN ${vlan} aún no tiene datos guardados.`;
@@ -688,6 +721,7 @@ async function saveVlanData() {
     const r = await api("/api/vlans", { method: "PUT", json: {
       isla: selectedIsla(), vlan, rd: $("eq-rd").value.trim(), vrf_name: $("eq-vrf-name").value.trim(),
       vrf_desc: $("eq-vrf-desc").value.trim(), vlan_desc: $("eq-desc-vlan").value.trim(),
+      config: $("eq-config").value,
     } });
     state.vlanCatalog = [...state.vlanCatalog.filter(v => v.vlan !== vlan), r.vlan];
     fillVlanData();
@@ -1032,22 +1066,28 @@ function downloadBlob(blob, filename) {
 // Equipos extremo Claro
 // ===========================================================================
 function getEquipmentRowsData() {
-  return Array.from($("equipment-tbody").querySelectorAll("tr")).map(tr => {
-    const v = Array.from(tr.querySelectorAll("input")).map(i => i.value.trim());
-    return { no: v[0], rol: v[1], marca: v[2], modelo: v[3], hostname: v[4], ip_admon: v[5], int_out: v[6] };
-  });
+  return Array.from($("equipment-tbody").querySelectorAll("tr"), tr => ({
+    no: tr.querySelector("input")?.value.trim() || "",
+  })).filter(equipo => equipo.no);
+}
+
+function renderEquipmentRows(equipos, emptyMessage = "No hay equipos registrados en Firebase para esta isla.") {
+  $("equipment-tbody").replaceChildren(...equipos.map(addEquipmentRow));
+  $("equipment-source").textContent = equipos.length
+    ? `${equipos.length} equipo(s) de la ruta cargados desde Firebase en el orden configurado.`
+    : emptyMessage;
+  markFormatStale();
 }
 
 function addEquipmentRow(data = {}) {
   const tbody = $("equipment-tbody");
   const headers = document.querySelectorAll("#equipment-table th");
   const values = [data.no || tbody.querySelectorAll("tr").length + 1, data.rol || "", data.marca || "", data.modelo || "",
-    data.hostname || "", data.ip_admon || "", data.int_out || ""];
+    data.hostname || "", data.ip_admon || "", data.int_out || "", data.lado || "CLARO"];
   const tr = el("tr", {}, ...values.map((value, index) =>
-    el("td", {}, el("input", { type: "text", value: String(value), "aria-label": headers[index].textContent.trim() }))));
-  tr.appendChild(el("td", { class: "center" },
-    el("button", { type: "button", class: "btn-danger-sm", onclick: () => { tr.remove(); markFormatStale(); } }, "Eliminar")));
+    el("td", {}, el("input", { type: "text", value: String(value), readOnly: true, "aria-label": headers[index].textContent.trim() }))));
   tbody.appendChild(tr);
+  return tr;
 }
 
 // ===========================================================================
@@ -1183,7 +1223,6 @@ function collectFormData() {
   const p = fecha.split("-");
   if (p.length === 3 && p[0].length === 4) fecha = `${p[2]}-${p[1]}-${p[0]}`;
   const tpl = currentTemplate();
-  const usaChasis = medioUsaChasis();
   return {
     titulo: $("p-titulo").value,
     id_servicio: $("p-id-servicio").value.trim(),
@@ -1195,9 +1234,11 @@ function collectFormData() {
     sin_factibilidad: state.sinFactibilidad,
     region: $("s-region").value,
     medio: $("s-medio").value,
-    chasis_id: usaChasis ? $("s-chasis").value : "",
-    chasis_slot: usaChasis ? $("s-chasis-slot").value : "",
-    chasis_puerto: usaChasis ? $("s-chasis-puerto").value : "",
+    // Leer el valor seleccionado directamente evita perder la clave del chasis
+    // por una discrepancia entre el catálogo del medio y el selector visible.
+    chasis_id: $("s-chasis").value,
+    chasis_slot: $("s-chasis-slot").value,
+    chasis_puerto: $("s-chasis-puerto").value,
     observaciones: $("s-observaciones").value,
     isla: selectedIsla(),
     vlan_num: vlanForData(),
@@ -1296,6 +1337,7 @@ async function registerAlta() {
       " · operación ",
       el("button", { type: "button", class: "link-btn mono", onclick: () => copyText(result.operation_id, "ID copiado") }, result.operation_id));
     toast(result.duplicate ? "El alta ya existía; no se duplicó." : `Alta ${result.alta_id} registrada en Firebase.`, "success", result.operation_id);
+    if (data.chasis_id) await refreshSelectedChasisAvailability();
   } catch (err) {
     showError(err, "No se pudo registrar el alta");
   } finally {
@@ -1336,7 +1378,7 @@ async function searchService(event) {
     const hayAlgoActivo = r.ips.length || r.loopback || activas.length;
     box.replaceChildren(
       hayAlgoActivo ? el("div", { class: "modal-buttons" },
-        el("button", { type: "button", class: "btn btn-danger btn-sm", onclick: () => openBajaModal(r) }, "Dar de baja el servicio")) : "",
+        el("button", { type: "button", class: "btn btn-danger btn-sm", onclick: () => openBajaModal(r) }, "Dar de baja y liberar recursos")) : "",
       el("p", {}, "Loopback: ", r.loopback ? el("span", { class: "mono" }, `${r.loopback}/32`) : "sin loopback asignada"),
       el("h4", {}, `IPs asignadas (${r.ips.length})`),
       r.ips.length ? el("ul", {}, ...r.ips.map(ip => el("li", {},
@@ -1344,7 +1386,8 @@ async function searchService(event) {
       el("h4", {}, `Altas registradas (${r.altas.length})`),
       r.altas.length ? el("ul", {}, ...r.altas.map(a => el("li", {},
         el("button", { type: "button", class: "link-btn mono", onclick: () => showAlta(a.alta_id) }, a.alta_id),
-        ` · ${formatDate(a.created_at)} · ${a.operator || ""}${a.estado === "BAJA" ? " · DE BAJA" : ""}`))) : el("p", { class: "hint" }, "Sin altas registradas."),
+        ` · ${formatDate(a.created_at)} · ${a.operator || ""}${a.estado === "BAJA" ? " · DE BAJA" : ""}`,
+        a.estado === "BAJA" ? "" : el("button", { type: "button", class: "btn btn-danger btn-sm", onclick: () => openBajaAltaModal(a) }, "Dar de baja alta")))) : el("p", { class: "hint" }, "Sin altas registradas."),
     );
   } catch (err) {
     box.replaceChildren(el("p", { class: "result-error" }, err.message));
@@ -1354,6 +1397,7 @@ async function searchService(event) {
 function openBajaModal(servicio) {
   if (!ensureOperator()) return;
   state.bajaTarget = servicio.service_id;
+  state.bajaAltaTarget = null;
   const activas = servicio.altas.filter(a => a.estado !== "BAJA").length;
   $("baja-summary").textContent =
     `Servicio ${servicio.service_id}: se liberarán ${servicio.ips.length} IP(s)` +
@@ -1362,22 +1406,34 @@ function openBajaModal(servicio) {
   openModal("baja-modal");
 }
 
+function openBajaAltaModal(alta) {
+  if (!ensureOperator()) return;
+  state.bajaTarget = null;
+  state.bajaAltaTarget = alta.alta_id;
+  $("baja-summary").textContent = `El alta ${alta.alta_id} quedará marcada como BAJA y se liberará su posición de slot/puerto. Las IPs y loopback del servicio se conservarán.`;
+  $("baja-reason").value = "";
+  openModal("baja-modal");
+}
+
 async function submitBaja(event) {
   event.preventDefault();
   const serviceId = state.bajaTarget;
-  if (!serviceId) return;
+  const altaId = state.bajaAltaTarget;
+  if (!serviceId && !altaId) return;
   try {
-    const result = await api(`/api/services/${encodeURIComponent(serviceId)}/baja`, {
+    const result = await api(altaId ? `/api/altas/${encodeURIComponent(altaId)}/baja`
+      : `/api/services/${encodeURIComponent(serviceId)}/baja`, {
       method: "POST", json: { reason: $("baja-reason").value.trim() },
     });
     closeModal("baja-modal");
-    for (const ip of result.ips) state.reservedForService.delete(ip);
+    for (const ip of result.ips || []) state.reservedForService.delete(ip);
     toast(result.message, "success", result.operation_id);
-    $("search-service-id").value = serviceId;
+    if (serviceId) $("search-service-id").value = serviceId;
     $("search-service-form").requestSubmit();
+    await refreshSelectedChasisAvailability();
     await refreshInventorySelection();
   } catch (err) {
-    showError(err, "No se pudo dar de baja el servicio");
+    showError(err, altaId ? "No se pudo dar de baja el alta" : "No se pudo dar de baja el servicio");
   }
 }
 

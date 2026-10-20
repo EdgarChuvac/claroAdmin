@@ -112,7 +112,7 @@ def test_loopback_pool_exhausted(client):
 
 
 def test_monitoring_psk_comes_from_environment(client, monkeypatch):
-    client.app.state.claro.catalog.network_defaults.psk_monitoreo = "PSK-ENTORNO"
+    client.app.state.claro.catalog.network_defaults.psk_monitoreo = "12 PSK-ENTORNO"
     try:
         res = _alta(client, "S-P", loopback_auto=True, psk="NO-SE-USA").json()
         assert res["formatted_text"].endswith("PRE-SHARED KEY: PSK-ENTORNO")

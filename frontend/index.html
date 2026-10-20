@@ -130,7 +130,7 @@
                 <option value="">SIN CHASIS</option>
                 </select>
                 <div class="grid-2 mt-5">
-                  <select id="s-chasis-slot" onchange="markFormatStale()" aria-label="Slot del chasis" disabled>
+                  <select id="s-chasis-slot" onchange="onChasisSlotChange()" aria-label="Slot del chasis" disabled>
                     <option value="">Slot</option>
                   </select>
                   <select id="s-chasis-puerto" onchange="markFormatStale()" aria-label="Puerto del chasis" disabled>
@@ -241,9 +241,15 @@
             <label>Descripción VLAN:</label>
             <input type="text" id="eq-desc-vlan" value="" maxlength="120">
           </div>
+
+          <div class="form-group">
+            <label>Configuración VLAN:</label>
+            <textarea id="eq-config" rows="8" cols="80" maxlength="500"></textarea>
+          </div>
+
           <div class="form-group">
             <label>&nbsp;</label>
-            <button type="button" class="btn btn-secondary" id="btn-save-vlan" onclick="saveVlanData()" title="Guardar RD, VRF y descripciones para esta VLAN">💾 Guardar datos de la VLAN</button>
+            <button type="button" class="btn btn-secondary" id="btn-save-vlan" onclick="saveVlanData()" title="Guardar los datos y la configuración CLI de esta VLAN en Firestore">💾 Guardar datos de la VLAN</button>
             <small id="vlan-data-status" class="hint"></small>
           </div>
 
@@ -265,9 +271,7 @@
         <div class="card-header flex-between">
           <h3>Equipos extremo Claro</h3>
           <div class="table-actions">
-            <span class="label-info">Centrales:</span>
-            <span id="centrales-presets"></span>
-            <button type="button" class="btn btn-sm btn-primary" onclick="addEquipmentRow()">+ Agregar Fila</button>
+            <small id="equipment-source" class="hint">Seleccione una isla para cargar equipos desde Firebase.</small>
           </div>
         </div>
         <div class="card-body p-0">
@@ -282,7 +286,7 @@
                   <th>Hostname</th>
                   <th style="width: 150px;">IP Admon.</th>
                   <th style="width: 150px;">Interfaz</th>
-                  <th style="width: 60px;">Acción</th>
+                  <th style="width: 90px;">Lado</th>
                 </tr>
               </thead>
               <tbody id="equipment-tbody"></tbody>

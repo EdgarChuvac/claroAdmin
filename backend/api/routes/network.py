@@ -73,7 +73,8 @@ def upsert_chasis(chasis_id: str, req: ChasisRequest, state: StateDep, operator:
     tracing.audit("topologia.chasis", chasis_id=chasis_id, isla=req.isla, activo=req.activo)
     values = {k: tracing.clean_text(getattr(req, k), 80) for k in state.repo.CHASIS_TEXT_FIELDS}
     values.update(slots=[tracing.clean_text(v, 20) for v in req.slots],
-                  puertos=[tracing.clean_text(v, 20) for v in req.puertos], activo=req.activo)
+                  puertos=[tracing.clean_text(v, 20) for v in req.puertos],
+                  equipos_ruta=req.equipos_ruta, activo=req.activo)
     doc = state.repo.upsert_chasis(chasis_id, tracing.clean_text(req.isla, 60), values, operator,
                                    tracing.current_operation_id())
     return {"message": f"Chasis {doc['nombre']} guardado en la isla {doc['isla']}.", "chasis": serialize(doc),
@@ -98,12 +99,28 @@ def set_sheet_isla(sheet: str, req: SheetIslaRequest, state: StateDep, operator:
 def list_vlans(state: StateDep, isla: str = Query(default="", max_length=60)) -> dict[str, Any]:
     return {"vlans": serialize(state.repo.list_vlans(tracing.clean_text(isla, 60)))}
 
+
+@router.get("/api/equipos")
+def list_equipos(state: StateDep, chasis_id: str = Query(min_length=1, max_length=64)) -> dict[str, Any]:
+    """Ruta ordenada de equipos del chasis seleccionado, leída desde Firebase."""
+    chasis_id = tracing.clean_text(chasis_id, 64)
+    return {"equipos": serialize(state.repo.list_equipos_ruta_chasis(chasis_id))}
+
 @router.put("/api/vlans")
 def upsert_vlan(req: VlanRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
     tracing.audit("vlan.upsert", isla=req.isla, vlan=req.vlan)
     doc = state.repo.upsert_vlan(
         tracing.clean_text(req.isla, 60), req.vlan.strip(),
-        {k: tracing.clean_text(getattr(req, k), 120) for k in ("rd", "vrf_name", "vrf_desc", "vlan_desc")},
+        {
+            **{
+                k: tracing.clean_text(getattr(req, k), 120)
+                for k in ("rd", "vrf_name", "vrf_desc", "vlan_desc")
+            },
+            "config": re.sub(
+                r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "",
+                req.config.replace("\r\n", "\n").replace("\r", "\n"),
+            )[:500],
+        },
         operator, tracing.current_operation_id(),
     )
     return {"message": f"Datos de la VLAN {doc['vlan']} guardados.", "vlan": serialize(doc),

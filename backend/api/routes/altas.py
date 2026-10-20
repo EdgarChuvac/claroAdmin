@@ -57,6 +57,8 @@ def _resolve_topology(data: dict[str, Any], form: FormatData, state: AppState) -
         data.pop(key, None)
     chasis_id = form.chasis_id.strip()
     if not chasis_id:
+        if form.chasis_slot.strip() or form.chasis_puerto.strip():
+            raise InventoryError("Se recibieron slot y puerto sin un ID de chasis. Vuelva a seleccionar el chasis.")
         for key in ("chasis_id", "chasis_slot", "chasis_puerto"):
             data.pop(key, None)
         return
@@ -67,7 +69,8 @@ def _resolve_topology(data: dict[str, Any], form: FormatData, state: AppState) -
         raise InventoryError(f"El chasis {chasis.get('nombre') or chasis_id} no pertenece a la isla {form.isla}.")
     for field, options in (("chasis_slot", chasis.get("slots") or []), ("chasis_puerto", chasis.get("puertos") or [])):
         value = getattr(form, field).strip()
-        if value and options and value not in options:
+        valid_options = {str(option).strip() for option in options}
+        if value and valid_options and value not in valid_options:
             label = "slot" if field == "chasis_slot" else "puerto"
             raise InventoryError(f"El {label} {value} no existe en el chasis {chasis.get('nombre') or chasis_id}.")
         data[field] = value
@@ -75,11 +78,27 @@ def _resolve_topology(data: dict[str, Any], form: FormatData, state: AppState) -
     data["chasis_nombre"] = chasis.get("nombre") or chasis_id
     data["chasis_id_fisico"] = chasis.get("id_fisico", "")
 
+
+def _resolve_vlan_config(data: dict[str, Any], form: FormatData, state: AppState) -> None:
+    """Obtiene el bloque guardado para el número de VLAN, sin depender de la isla."""
+    data["vlan_config"] = state.repo.get_vlan_config(form.vlan_num, form.isla)
+
+
+def _resolve_equipos_claro(data: dict[str, Any], form: FormatData, state: AppState) -> None:
+    """Carga la ruta ordenada que Firebase asocia al chasis seleccionado."""
+    equipos = state.repo.list_equipos_ruta_chasis(form.chasis_id) if form.chasis_id else []
+    if form.chasis_id and not equipos:
+        raise InventoryError(f"El chasis {form.chasis_id} no tiene equipos configurados en equipos_ruta.")
+    data["equipos_claro"] = equipos
+
+
 @router.post("/api/generate-format")
 def generate_format(req: GenerateFormatRequest, state: StateDep) -> dict[str, str]:
     """Vista previa: genera el texto sin registrarlo (la loopback se muestra sin reservarse)."""
     data = req.data.model_dump(exclude_none=True, exclude_unset=True)
     _resolve_topology(data, req.data, state)
+    _resolve_vlan_config(data, req.data, state)
+    _resolve_equipos_claro(data, req.data, state)
     if req.data.loopback_auto:
         data["loopback"] = state.repo.peek_loopback(req.data.id_servicio.strip(), *loopback_range(state))
     else:
@@ -97,14 +116,19 @@ def create_alta(req: AltaRequest, state: StateDep, operator: OperatorDep) -> dic
     tracing.audit("alta.create", service_id=service_id, cliente=req.data.cliente)
     data.pop("loopback", None)
     _resolve_topology(data, req.data, state)
+    if data.get("chasis_id") and (not req.data.chasis_slot.strip() or not req.data.chasis_puerto.strip()):
+        raise InventoryError("Seleccione el slot y el puerto del chasis antes de registrar el alta.")
+    _resolve_vlan_config(data, req.data, state)
+    _resolve_equipos_claro(data, req.data, state)
     vlan = None
     if req.data.isla and req.data.vlan_num.isdigit() and any(
-        (req.data.rd, req.data.vrf_name, req.data.vrf_desc, req.data.desc_vlan)
+        (req.data.rd, req.data.vrf_name, req.data.vrf_desc, req.data.desc_vlan, data.get("vlan_config"))
     ):
         # Lo que se capturó para la VLAN queda guardado para autocompletar la siguiente alta.
         vlan = (req.data.isla, req.data.vlan_num, {
             "rd": req.data.rd, "vrf_name": req.data.vrf_name,
             "vrf_desc": req.data.vrf_desc, "vlan_desc": req.data.desc_vlan,
+            "config": data.get("vlan_config", ""),
         })
     record = {
         "service_id": service_id,
@@ -117,6 +141,8 @@ def create_alta(req: AltaRequest, state: StateDep, operator: OperatorDep) -> dic
         "vlan": req.data.vlan_num,
         "medio": data["medio"],
         "chasis_id": data.get("chasis_id", ""),
+        "chasis_slot": req.data.chasis_slot.strip(),
+        "chasis_puerto": req.data.chasis_puerto.strip(),
         "operator": operator,
         "operation_id": tracing.current_operation_id(),
         # La PSK solo queda en el texto del alta (necesario para entregarlo), no en form_data.
@@ -151,6 +177,16 @@ def list_altas(
 ) -> dict[str, Any]:
     service_id = tracing.clean_text(service_id, 100)
     return {"altas": serialize([_alta_summary(a) for a in state.repo.list_altas(service_id, limit)])}
+
+@router.post("/api/altas/{alta_id}/baja")
+def decommission_alta(alta_id: str, req: ServiceBajaRequest, state: StateDep,
+                      operator: OperatorDep) -> dict[str, Any]:
+    alta_id = tracing.clean_text(alta_id, 40)
+    tracing.audit("alta.baja", alta_id=alta_id, reason=req.reason)
+    result = state.repo.decommission_alta(alta_id, operator, tracing.current_operation_id(), req.reason)
+    tracing.audit("alta.baja", **result)
+    return {"message": f"Alta {alta_id} dada de baja; posición del chasis liberada.",
+            **result, "operation_id": tracing.current_operation_id()}
 
 @router.get("/api/altas/{alta_id}")
 def get_alta(alta_id: str, state: StateDep) -> dict[str, Any]:

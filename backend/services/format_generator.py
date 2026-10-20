@@ -14,6 +14,7 @@ está vacío no aparece en el texto final. Estructura::
     [bloque de monitoreo NMIS/ISE si hay loopback]
 """
 
+import re
 from typing import Any, Dict, List, Optional
 
 from .catalog import Catalog, default_catalog
@@ -27,6 +28,36 @@ def _text(value: Any, default: str = "") -> str:
     if value is None:
         return default
     return str(value).strip()
+
+
+def _vlan_config_lines(value: str) -> List[str]:
+    """Conserva líneas y separa comandos que Firebase haya almacenado juntos."""
+    config = value.replace("\\n", "\n").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not config:
+        return []
+    commands = (
+        "ip vpn-instance", "description", "ipv4-family", "route-distinguisher",
+        "import route-policy", "export route-policy", "apply-label", "vpn-target",
+        "traffic-policy",
+    )
+    marker = r"(?=\s+(?:#(?=\s|$)|(?:" + "|".join(re.escape(command) for command in commands) + r")\b))"
+    lines: List[str] = []
+    for source_line in config.splitlines():
+        parts = re.split(marker, source_line.strip())
+        commands_on_line = [part.strip() for part in parts if part.strip()]
+        if len(commands_on_line) <= 1:
+            lines.append(source_line.rstrip())
+            continue
+        for command in commands_on_line:
+            if command.startswith("#") or command.startswith("ip vpn-instance"):
+                lines.append(command)
+            elif command.startswith(("description", "ipv4-family")):
+                lines.append(f" {command}")
+            elif command.startswith(commands[3:]):
+                lines.append(f"  {command}")
+            else:
+                lines.append(command)
+    return lines
 
 
 def _equipment_order(eq: Dict[str, Any]) -> tuple[int, int]:
@@ -64,6 +95,7 @@ def build_route_string(
     el chasis, si se eligió, es el último salto del lado Claro.
     """
     parts = []
+    client_parts = []
     for eq in sorted(equipos, key=_equipment_order):
         name = " ".join(p for p in (_text(eq.get(k)) for k in ("rol", "marca", "modelo", "hostname")) if p)
         ip = _text(eq.get("ip_admon"))
@@ -73,13 +105,15 @@ def build_route_string(
         if int_out:
             name = f"{name} {int_out}".strip()
         if name:
-            parts.append(name)
+            (client_parts if _text(eq.get("lado")).upper() == "CLIENTE" else parts).append(name)
     if _text(chasis):
         parts.append(_text(chasis))
 
     cliente_chain = f"(CLIENTE) {raisecom_model}"
     if cpe_model:
         cliente_chain += f" --> {cpe_model}"
+    if client_parts:
+        cliente_chain = " --> ".join(client_parts)
     claro_chain = " --> ".join(parts)
     if not claro_chain:
         return cliente_chain
@@ -203,16 +237,18 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
     vlan_line = " ".join(p for p in (f"VLAN: {vlan}" if vlan else "",
                                     f"DESCRIPCION: {vlan_desc}" if vlan_desc else "") if p)
     vrf_name = pick("vrf_name", template.vrf_name)
-    vpn_block = build_vpn_instance_block(
-        vrf_name=vrf_name,
-        vrf_desc=pick("vrf_desc", template.vrf_desc),
-        rd=pick("rd", template.rd),
-        import_policy=template.import_policy,
-        export_policy=template.export_policy,
-        apply_label=template.apply_label_per_instance,
-        vpn_targets=template.vpn_targets if data.get("vpn_targets") is None else data.get("vpn_targets"),
-        traffic_policy=template.traffic_policy,
-    )
+    vlan_config = _text(data.get("vlan_config"))
+    vpn_block = (_vlan_config_lines(vlan_config) if vlan_config else
+                 build_vpn_instance_block(
+                     vrf_name=vrf_name,
+                     vrf_desc=pick("vrf_desc", template.vrf_desc),
+                     rd=pick("rd", template.rd),
+                     import_policy=template.import_policy,
+                     export_policy=template.export_policy,
+                     apply_label=template.apply_label_per_instance,
+                     vpn_targets=template.vpn_targets if data.get("vpn_targets") is None else data.get("vpn_targets"),
+                     traffic_policy=template.traffic_policy,
+                 ))
     sections = [
         gestion,
         wan,
@@ -244,7 +280,8 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
             lines.append("")
             lines.extend(section)
 
-    footer = [line for line in (id_servicio, observaciones) if line]
+    # El ID del servicio solo aparece etiquetado en el bloque de monitoreo.
+    footer = [observaciones] if observaciones else []
     if footer:
         lines.append("")
         lines.extend(footer)
