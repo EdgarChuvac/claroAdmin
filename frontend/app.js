@@ -92,7 +92,8 @@ async function onMedioChange() {
 }
 
 function selectedChasis() {
-  return state.chasis.find(ch => ch.id === $("s-chasis").value) || null;
+  const selectedId = String($("s-chasis").value);
+  return state.chasis.find(ch => String(ch.id) === selectedId) || null;
 }
 
 function fillChasisPorts() {
@@ -147,7 +148,13 @@ async function loadEquiposRutaChasis() {
   try {
     const result = await api(`/api/equipos?${new URLSearchParams({ chasis_id: chasisId })}`);
     if ($("s-chasis").value !== chasisId) return;
-    renderEquipmentRows(result.equipos || [], "El chasis no tiene números de ruta configurados en Firebase.");
+    const equipos = result.equipos || [];
+    const numerosRuta = (result.equipos_ruta || []).join(" → ");
+    const detalleRuta = numerosRuta ? ` Ruta configurada: ${numerosRuta}.` : " Firebase no tiene números en equipos_ruta.";
+    renderEquipmentRows(equipos, `Consulta Firebase: chasis ${result.chasis_id || chasisId}, isla ${result.isla || selectedIsla()}; 0 equipos.${detalleRuta}`);
+    if (equipos.length) {
+      $("equipment-source").textContent = `Firebase: chasis ${result.chasis_id || chasisId}, isla ${result.isla || selectedIsla()}; ${equipos.length} equipo(s). Orden configurado: ${equipos.map(eq => eq.no).join(" → ")}.`;
+    }
   } catch (err) {
     if ($("s-chasis").value === chasisId) renderEquipmentRows([], "No se pudo cargar la ruta desde Firebase.");
     showError(err, "No se pudo cargar la ruta de equipos del chasis");
@@ -171,7 +178,7 @@ async function loadChasisForIsla() {
     state.chasis = result.chasis;
     select.replaceChildren(new Option(state.chasis.length ? "SIN CHASIS" : "La isla no tiene chasis registrados", ""),
       ...state.chasis.map(ch => new Option(ch.id_fisico ? `${ch.nombre} (${ch.id_fisico})` : ch.nombre || ch.id, ch.id)));
-    if (state.chasis.some(ch => ch.id === previous)) select.value = previous;
+    if (state.chasis.some(ch => String(ch.id) === String(previous))) select.value = previous;
   } catch (err) {
     if (requestId !== state.chasisRequestId) return;
     // 404: la isla aún no está registrada en la topología; se continúa sin chasis.
@@ -296,9 +303,9 @@ function confirmDialog(message, { title = "Confirmar", accept = "Confirmar", dan
 async function copyText(text, okMessage = "Copiado al portapapeles") {
   try {
     await navigator.clipboard.writeText(text);
-    toast(okMessage, "success");
+    toast(okMessage, "Exitoso");
   } catch {
-    toast("No se pudo copiar automáticamente. Selecciónelo y use Ctrl+C.", "warning");
+    toast("No se pudo copiar automáticamente. Selecciónelo y use Ctrl+C.", "");
   }
 }
 
@@ -373,7 +380,7 @@ function isGatedTab(tabId) {
 
 function activateTab(tabId) {
   if (isGatedTab(tabId) && !factibilidadResuelta()) {
-    toast("Cargue la factibilidad o pulse «Sin factibilidad» para continuar.", "warning");
+    toast("Cargar factibilidad si tiene o elegir «Sin Factibilidad» para continuar.", "warning");
     tabId = "tab-principal";
     $("p-factibilidad-quick-paste").focus();
   }
@@ -431,13 +438,13 @@ function saveOperator(event) {
   setOperator(value);
   storageSet(STORAGE_KEYS.operator, state.operator);
   closeModal("operator-modal");
-  toast(`Operando como ${state.operator}`, "success");
+  toast(`Operando como ${state.operator}`, "Exitoso");
 }
 
 function ensureOperator() {
   if (state.operator) return true;
   openOperatorModal();
-  toast("Indique su nombre de operador para continuar.", "warning");
+  toast("Ingresar nombre de Ingeniero para continuar.", "warning");
   return false;
 }
 
@@ -534,7 +541,7 @@ function selectedIsla() {
   return value === NO_ISLA ? "" : value;
 }
 
-async function loadInventory() {
+async function loadInventory({ refreshTopology = true } = {}) {
   const badge = $("inventory-badge");
   try {
     const data = await api("/api/sheets");
@@ -545,7 +552,7 @@ async function loadInventory() {
       : "Inventario vacío: importe un Excel";
     badge.classList.toggle("empty", !state.sheets.length);
     badge.classList.remove("error");
-    await Promise.all([loadIslas(), loadIslasDatalist()]);
+    if (refreshTopology) await Promise.all([loadIslas(), loadIslasDatalist()]);
   } catch (err) {
     badge.classList.add("error");
     $("inventory-status").textContent = "Error al conectar con Firebase";
@@ -609,7 +616,7 @@ async function onIslaChange({ keepSelection = false } = {}) {
     const islaParam = encodeURIComponent(selectedIsla());
     const [segments, vlans] = await Promise.all([
       api(`/api/segments?isla=${islaParam}`),
-      api("/api/vlans"),
+      api(`/api/vlans?isla=${islaParam}`),
     ]);
     if (requestId !== state.inventoryRequestId) return;
     state.islaSegments = segments.segments || [];
@@ -653,7 +660,7 @@ function fillVlanSelect(preferred = "") {
   if (esInternet && region && !vlanRegion) options[0] = new Option(`La región ${region.label} no tiene VLAN de Internet configurada`, "");
   // Con INTERNET la VLAN la define la región: se selecciona sola.
   if (vlanRegion && !preferred) preferred = vlanRegion;
-  if (state.islaSegments.length && !esInternet) options.push(new Option("Todas las VLAN de la isla", "*"));
+  if (state.islaSegments.length && !esInternet) options.push(new Option("Todas las VLAN activas de la isla", "*"));
 
   select.replaceChildren(...options);
   select.value = [...select.options].some(o => o.value === preferred) ? preferred : "";
@@ -725,7 +732,7 @@ async function saveVlanData() {
     } });
     state.vlanCatalog = [...state.vlanCatalog.filter(v => v.vlan !== vlan), r.vlan];
     fillVlanData();
-    toast(r.message, "success", r.operation_id);
+    toast(r.message, "Exitoso", r.operation_id);
   } catch (err) {
     showError(err, "No se pudieron guardar los datos de la VLAN");
   }
@@ -820,7 +827,7 @@ function onFreeIPSelected() {
 function assignFirstFreeIP() {
   const block = state.selectedBlock;
   if (!block || !block.available_ips.length) {
-    toast("No hay IPs libres en esta subred.", "warning");
+    toast("No hay IP'S libres en esta subred, cargar segmento", "warning");
     return;
   }
   setSelectedFreeIPs([block.available_ips[0].ip]);
@@ -843,7 +850,8 @@ function renderAssignedTable(block) {
 async function refreshInventorySelection() {
   const sheet = $("ipam-sheet-select").value;
   const segment = state.selectedBlock && state.selectedBlock.segment_id;
-  await loadInventory();
+  // Actualizar IPAM sin recargar islas/chasis: la reserva no cambia la topología.
+  await loadInventory({ refreshTopology: false });
   if (sheet && [...$("ipam-sheet-select").options].some(o => o.value === sheet)) {
     $("ipam-sheet-select").value = sheet;
     await loadBlocksForSheet(sheet, segment);
@@ -878,7 +886,7 @@ async function confirmIPReservation() {
       json: { ips, service_id: serviceId, cliente: $("p-cliente").value.trim(), purpose: "WAN" },
     });
     ips.forEach(ip => state.reservedForService.set(ip, serviceId));
-    toast(result.message, "success", result.operation_id);
+    toast(result.message, "Exitoso", result.operation_id);
     await refreshInventorySelection();
     // conservar la selección reservada en el formulario
     $("eq-ip-wan").value = ips[0];
@@ -914,7 +922,7 @@ async function submitRelease(event) {
     });
     closeModal("release-modal");
     state.reservedForService.delete(item.ip);
-    toast(result.message, "success", result.operation_id);
+    toast(result.message, "Exitoso", result.operation_id);
     await refreshInventorySelection();
   } catch (err) {
     showError(err, "No se pudo liberar");
@@ -926,7 +934,7 @@ function openAssignIslaModal() {
   if (!ensureOperator()) return;
   const sheet = $("ipam-sheet-select").value;
   if (!sheet) {
-    toast("Seleccione un segmento /24.", "warning");
+    toast("Seleccione un segmento", "warning");
     return;
   }
   $("isla-modal-summary").textContent = `Segmento ${sheet}: sus subredes aparecerán al elegir esta isla.`;
@@ -940,7 +948,7 @@ async function submitAssignIsla(event) {
   try {
     const r = await api(`/api/sheets/${encodeURIComponent(sheet)}/isla`, { method: "PUT", json: { isla: $("isla-modal-input").value.trim() } });
     closeModal("isla-modal");
-    toast(r.message, "success", r.operation_id);
+    toast(r.message, "Exitoso", r.operation_id);
     await loadIslas(r.isla);
   } catch (err) {
     showError(err, "No se pudo asignar la isla");
@@ -1027,7 +1035,7 @@ async function submitImport(event) {
           el("li", { class: "mono" }, `${c.ip}: Firebase=${c.firestore} · Excel=${c.excel}`)))
       ) : null,
     );
-    toast("Inventario importado a Firebase.", "success", r.operation_id);
+    toast("Inventario importado", "Exitoso", r.operation_id);
     await loadInventory();
   } catch (err) {
     resultBox.replaceChildren(el("p", { class: "result-error" }, `❌ ${err.message}`),
@@ -1047,7 +1055,7 @@ async function exportInventory() {
     const match = disposition.match(/filename="([^"]+)"/);
     downloadBlob(blob, match ? match[1] : "inventario_ips.xlsx");
     setLastOperation(operationId);
-    toast("Inventario exportado.", "success", operationId);
+    toast("Inventario exportado.", "Exitoso", operationId);
   } catch (err) {
     showError(err, "No se pudo exportar");
   }
@@ -1355,7 +1363,7 @@ function copyFormatToClipboard() {
 
 function downloadFormatTxt() {
   if (!state.registeredAlta) {
-    toast("Registre el alta antes de descargarla.", "warning");
+    toast("Registrar el alta antes de descargarla.", "warning");
     return;
   }
   const safeId = state.registeredAlta.service.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "ALTA";
@@ -1427,7 +1435,7 @@ async function submitBaja(event) {
     });
     closeModal("baja-modal");
     for (const ip of result.ips || []) state.reservedForService.delete(ip);
-    toast(result.message, "success", result.operation_id);
+    toast(result.message, "Exitoso", result.operation_id);
     if (serviceId) $("search-service-id").value = serviceId;
     $("search-service-form").requestSubmit();
     await refreshSelectedChasisAvailability();

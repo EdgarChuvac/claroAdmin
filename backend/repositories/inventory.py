@@ -909,33 +909,52 @@ class InventoryRepository:
             key=lambda c: c.get("nombre", ""),
         )
 
-    def list_equipos_transmision(self, isla: str) -> list[dict[str, Any]]:
-        """Lee los equipos de ``Equipos_Transmission/{ISLA}/equipos/{numero}``."""
+    def list_Equipos_Transmision(self, isla: str) -> list[dict[str, Any]]:
+        """Lee equipos en subcolecciones por isla y en colecciones planas heredadas."""
         isla_id = re.sub(r"[^A-Z0-9_]+", "_", normalize_isla(isla)).strip("_")
         if not isla_id:
             return []
         fields = ("rol", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
         # Se consultan las dos grafías usadas al configurar Firebase para mantener
-        # compatibilidad con datos cargados como ``Transmision`` o ``Transmission``.
+        # compatibilidad con datos cargados como ``Transmision`
         equipos_por_id: dict[str, dict[str, Any]] = {}
+        island_ids = {isla_id, isla_doc_id(isla), normalize_isla(isla)}
         for collection_name in ("Equipos_Transmission", "Equipos_Transmision"):
-            collection = self.col(f"{collection_name}/{isla_id}/equipos")
-            for snap in collection.stream():
+            # La subcolección aparece con mayúsculas distintas en bases antiguas.
+            for island_key in island_ids:
+                for subcollection_name in ("equipos", "Equipos", "EQUIPOS"):
+                    collection = self.col(f"{collection_name}/{island_key}/{subcollection_name}")
+                    for snap in collection.stream():
+                        raw = snap.to_dict() or {}
+                        lowered = {str(key).lower(): value for key, value in raw.items()}
+                        item = {field: str(lowered.get(field, "") or "").strip() for field in fields}
+                        item["lado"] = item["lado"].upper() or "CLARO"
+                        item["no"] = str(lowered.get("no") or snap.id).strip()
+                        equipos_por_id.setdefault(item["no"], item)
+
+            # Algunas instalaciones guardan cada equipo directamente en la colección raíz.
+            # En ese formato cada documento debe identificar la isla y su número.
+            for snap in self.col(collection_name).stream():
                 raw = snap.to_dict() or {}
                 lowered = {str(key).lower(): value for key, value in raw.items()}
+                equipo_isla = normalize_isla(str(lowered.get("isla") or lowered.get("isla_nombre") or ""))
+                equipo_isla_id = str(lowered.get("isla_id") or "").strip().upper()
+                if equipo_isla not in island_ids and equipo_isla_id not in island_ids:
+                    continue
+                numero = str(lowered.get("no") or lowered.get("numero") or snap.id).strip()
                 item = {field: str(lowered.get(field, "") or "").strip() for field in fields}
                 item["lado"] = item["lado"].upper() or "CLARO"
-                item["no"] = snap.id
-                equipos_por_id.setdefault(snap.id, item)
+                item["no"] = numero
+                equipos_por_id.setdefault(numero, item)
         equipos = list(equipos_por_id.values())
         return sorted(equipos, key=lambda equipo: (not equipo["no"].isdigit(),
                                                     int(equipo["no"]) if equipo["no"].isdigit() else equipo["no"]))
 
-    def get_equipos_transmision(self, isla: str, numeros: list[str]) -> list[dict[str, Any]]:
+    def get_Equipos_Transmision(self, isla: str, numeros: list[str]) -> list[dict[str, Any]]:
         """Resuelve los números elegidos usando exclusivamente los documentos de Firebase."""
         if not numeros:
             return []
-        catalog = {equipo["no"]: equipo for equipo in self.list_equipos_transmision(isla)}
+        catalog = {equipo["no"]: equipo for equipo in self.list_Equipos_Transmision(isla)}
         missing = [numero for numero in numeros if numero not in catalog]
         if missing:
             raise NotFoundError(
@@ -950,7 +969,7 @@ class InventoryRepository:
         isla = chasis.get("isla", "")
         if not isla and chasis.get("isla_id"):
             isla = self.get_isla(chasis["isla_id"]).get("nombre", "")
-        return self.get_equipos_transmision(isla, numeros)
+        return self.get_Equipos_Transmision(isla, numeros)
 
     def replace_centrales(self, centrales: list[dict[str, Any]]) -> int:
         existing = {snap.id for snap in self.col("centrales").stream()}

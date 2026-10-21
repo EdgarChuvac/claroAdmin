@@ -102,9 +102,18 @@ def list_vlans(state: StateDep, isla: str = Query(default="", max_length=60)) ->
 
 @router.get("/api/equipos")
 def list_equipos(state: StateDep, chasis_id: str = Query(min_length=1, max_length=64)) -> dict[str, Any]:
-    """Ruta ordenada de equipos del chasis seleccionado, leída desde Firebase."""
+    """Consulta en Firebase el chasis y los equipos que componen su ruta."""
     chasis_id = tracing.clean_text(chasis_id, 64)
-    return {"equipos": serialize(state.repo.list_equipos_ruta_chasis(chasis_id))}
+    chasis = state.repo.get_chasis(chasis_id)
+    ruta = chasis.get("equipos_ruta") or []
+    if not isinstance(ruta, list):
+        ruta = [ruta]
+    return {
+        "chasis_id": chasis_id,
+        "isla": chasis.get("isla", ""),
+        "equipos_ruta": [str(numero).strip() for numero in ruta if str(numero).strip()],
+        "equipos": serialize(state.repo.list_equipos_ruta_chasis(chasis_id)),
+    }
 
 @router.put("/api/vlans")
 def upsert_vlan(req: VlanRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
