@@ -66,6 +66,11 @@ def list_chasis(state: StateDep, isla: str = Query(min_length=1, max_length=60, 
     """Chasis activos de una isla registrada en la topología."""
     return {"isla": isla.strip().upper(), "chasis": serialize(state.repo.list_chasis_isla(isla.strip()))}
 
+@router.get("/api/gpon")
+def list_gpon(state: StateDep, isla: str = Query(min_length=1, max_length=60, pattern=r"\S")) -> dict[str, Any]:
+    """Equipos G-PON registrados en la isla, con estructura equivalente a chasis."""
+    return {"isla": isla.strip().upper(), "gpon": serialize(state.repo.list_gpon_isla(isla.strip()))}
+
 @router.put("/api/chasis/{chasis_id}")
 def upsert_chasis(chasis_id: str, req: ChasisRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
     if not re.fullmatch(CHASIS_ID_PATTERN, chasis_id):
@@ -101,9 +106,27 @@ def list_vlans(state: StateDep, isla: str = Query(default="", max_length=60)) ->
 
 
 @router.get("/api/equipos")
-def list_equipos(state: StateDep, chasis_id: str = Query(min_length=1, max_length=64)) -> dict[str, Any]:
-    """Consulta en Firebase el chasis y los equipos que componen su ruta."""
+def list_equipos(
+    state: StateDep,
+    chasis_id: str = Query(default="", max_length=64),
+    gpon_id: str = Query(default="", max_length=64),
+) -> dict[str, Any]:
+    """Consulta los equipos_ruta de un chasis o de un equipo G-PON."""
     chasis_id = tracing.clean_text(chasis_id, 64)
+    gpon_id = tracing.clean_text(gpon_id, 64)
+    if bool(chasis_id) == bool(gpon_id):
+        raise InventoryError("Indique un solo identificador: chasis_id o gpon_id.")
+    if gpon_id:
+        gpon = state.repo.get_gpon(gpon_id)
+        ruta = gpon.get("equipos_ruta") or []
+        if not isinstance(ruta, list):
+            ruta = [ruta]
+        return {
+            "gpon_id": gpon_id,
+            "isla": gpon.get("isla", gpon.get("isla_id", "")),
+            "equipos_ruta": [str(numero).strip() for numero in ruta if str(numero).strip()],
+            "equipos": serialize(state.repo.list_equipos_ruta_gpon(gpon_id)),
+        }
     chasis = state.repo.get_chasis(chasis_id)
     ruta = chasis.get("equipos_ruta") or []
     if not isinstance(ruta, list):

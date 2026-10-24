@@ -7,8 +7,9 @@ const state = {
   config: null,
   islasRequestId: 0,
   chasisRequestId: 0,
-  gponRouteRequestId: 0,
+  gponRequestId: 0,
   chasis: [],
+  gpon: [],
   equipmentRoute: [],
   operator: "",
   clientSession: "",
@@ -88,12 +89,17 @@ function applyMedioGestion() {
 async function onMedioChange() {
   $("grp-chasis").hidden = !medioUsaChasis();
   const isGpon = $("s-medio").value === "GPON";
-  $("grp-gpon-route").hidden = !isGpon;
-  $("s-gpon-route").required = isGpon;
+  $("grp-gpon").hidden = !isGpon;
+  $("s-gpon").required = isGpon;
   applyMedioGestion();
   markFormatStale();
-  await loadChasisForIsla();
+  await loadTransportOptions();
   await loadEquiposRutaChasis();
+}
+
+async function loadTransportOptions() {
+  if ($("s-medio").value === "GPON") await loadGponForIsla();
+  else await loadChasisForIsla();
 }
 
 function selectedChasis() {
@@ -169,14 +175,15 @@ function selectFirstAvailableChasisPort() {
 
 async function loadEquiposRutaChasis() {
   if ($("s-medio").value === "GPON") {
-    await loadGponRouteForIsla();
+    await loadEquiposRutaGpon();
     return;
   }
-  const chasisId = $("s-chasis").value;
+  const chasisId = $("s-chasis").value.trim();
   if (!chasisId) {
     renderEquipmentRows([], "Seleccione el chasis para cargar su ruta desde Firebase.");
     return;
   }
+  if ($("s-chasis").value !== chasisId) $("s-chasis").value = chasisId;
   $("equipment-source").textContent = "Consultando la ruta del chasis en Firebase...";
   try {
     const result = await api(`/api/equipos?${new URLSearchParams({ chasis_id: chasisId })}`);
@@ -194,71 +201,73 @@ async function loadEquiposRutaChasis() {
   }
 }
 
-async function loadGponRouteForIsla() {
-  const requestId = ++state.gponRouteRequestId;
-  const select = $("s-gpon-route");
+async function loadGponForIsla() {
+  const requestId = ++state.gponRequestId;
+  const select = $("s-gpon");
   const isla = selectedIsla();
   const previous = select.value;
+  state.gpon = [];
   if (!isla) {
     select.replaceChildren(new Option("Seleccione una isla primero", ""));
     select.disabled = true;
-    renderEquipmentRows([], "Seleccione la isla para cargar sus rutas G-PON desde Firebase.");
+    renderEquipmentRows([], "Seleccione la isla para cargar sus equipos G-PON desde Firebase.");
     updateGenerationAvailability();
     return;
   }
-  select.replaceChildren(new Option("Cargando rutas G-PON...", ""));
+  select.replaceChildren(new Option("Cargando equipos G-PON...", ""));
   select.disabled = true;
   try {
-    const result = await api("/api/gpon-routes?" + new URLSearchParams({ isla }));
-    if (requestId !== state.gponRouteRequestId || $("s-medio").value !== "GPON" || selectedIsla() !== isla) return;
-    const routes = result.routes || [];
+    const result = await api("/api/gpon?" + new URLSearchParams({ isla }));
+    if (requestId !== state.gponRequestId || $("s-medio").value !== "GPON" || selectedIsla() !== isla) return;
+    state.gpon = result.gpon || [];
     select.replaceChildren(
-      new Option(routes.length ? "Seleccione la ruta G-PON" : "No hay rutas G-PON para " + isla, ""),
-      ...routes.map(route => new Option(route, route)),
+      new Option(state.gpon.length ? "Seleccione el equipo G-PON" : "No hay equipos G-PON para " + isla, ""),
+      ...state.gpon.map(item => {
+        const id = String(item.id || item.NMONICO || "").trim();
+        const label = item.nombre || item.NMONICO || id;
+        return new Option(`${label}${item.modelo ? ` (${item.modelo})` : ""}`, id);
+      }),
     );
-    if (routes.includes(previous)) select.value = previous;
-    else if (routes.length === 1) select.value = routes[0];
-    select.disabled = !routes.length;
+    if (state.gpon.some(item => String(item.id || item.NMONICO || "").trim() === previous)) select.value = previous;
+    else if (state.gpon.length === 1) select.value = String(state.gpon[0].id || state.gpon[0].NMONICO || "").trim();
+    select.disabled = !state.gpon.length;
     updateGenerationAvailability();
-    if (select.value) await loadSelectedGponRoute(requestId, isla);
-    else renderEquipmentRows([], routes.length
-      ? "Seleccione la ruta G-PON para cargar sus equipos."
-      : "Firebase no tiene rutas G-PON registradas para " + isla + ".");
+    if (!select.value) renderEquipmentRows([], state.gpon.length
+      ? "Seleccione el equipo G-PON para cargar sus equipos de transmisión."
+      : "Firebase no tiene equipos G-PON registrados para " + isla + ".");
   } catch (err) {
-    if (requestId !== state.gponRouteRequestId) return;
-    select.replaceChildren(new Option("No se pudieron cargar las rutas G-PON", ""));
-    renderEquipmentRows([], "No se pudieron cargar las rutas G-PON desde Firebase.");
-    showError(err, "No se pudieron cargar las rutas G-PON");
+    if (requestId !== state.gponRequestId) return;
+    select.replaceChildren(new Option("No se pudieron cargar equipos G-PON", ""));
+    renderEquipmentRows([], "No se pudieron cargar los equipos G-PON desde Firebase.");
+    showError(err, "No se pudieron cargar los equipos G-PON");
   }
 }
 
-async function onGponRouteChange() {
+async function onGponChange() {
   markFormatStale();
   updateGenerationAvailability();
-  await loadSelectedGponRoute();
+  await loadEquiposRutaGpon();
 }
 
-async function loadSelectedGponRoute(requestId = ++state.gponRouteRequestId, isla = selectedIsla()) {
-  const routeId = $("s-gpon-route").value;
-  if (!isla || !routeId) {
-    renderEquipmentRows([], "Seleccione una ruta G-PON para cargar sus equipos.");
+async function loadEquiposRutaGpon() {
+  const requestId = ++state.gponRequestId;
+  const gponId = $("s-gpon").value.trim();
+  if (!gponId) {
+    renderEquipmentRows([], "Seleccione el equipo G-PON para cargar su ruta de transmisión.");
     return;
   }
   try {
-    const result = await api("/api/gpon-routes/" + encodeURIComponent(routeId) + "?"
-      + new URLSearchParams({ isla }));
-    if (requestId !== state.gponRouteRequestId || $("s-medio").value !== "GPON"
-        || selectedIsla() !== isla || $("s-gpon-route").value !== routeId) return;
+    const result = await api("/api/equipos?" + new URLSearchParams({ gpon_id: gponId }));
+    if (requestId !== state.gponRequestId || $("s-medio").value !== "GPON"
+        || $("s-gpon").value.trim() !== gponId) return;
     const equipos = result.equipos || [];
-    renderEquipmentRows(equipos, "La ruta G-PON " + routeId + " no tiene equipos cargados.");
-    if (equipos.length) {
-      $("equipment-source").textContent = "Firebase: isla " + isla + "; ruta G-PON " + routeId
-        + "; " + equipos.length + " equipo(s). Orden: " + equipos.map(eq => eq.no).join(" → ") + ".";
-    }
+    renderEquipmentRows(equipos, `El equipo G-PON ${gponId} no tiene equipos configurados en equipos_ruta.`);
+    if (equipos.length) $("equipment-source").textContent =
+      `Firebase: equipo G-PON ${gponId}; ${equipos.length} equipo(s). Orden: ${equipos.map(eq => eq.no).join(" → ")}.`;
   } catch (err) {
-    if (requestId !== state.gponRouteRequestId) return;
-    renderEquipmentRows([], "No se pudo cargar la ruta G-PON " + routeId + ".");
-    showError(err, "No se pudo cargar la ruta G-PON");
+    if (requestId !== state.gponRequestId) return;
+    renderEquipmentRows([], "No se pudo cargar la ruta del equipo G-PON.");
+    showError(err, "No se pudo cargar la ruta del equipo G-PON");
   }
 }
 
@@ -278,8 +287,13 @@ async function loadChasisForIsla() {
     if (requestId !== state.chasisRequestId) return;
     state.chasis = result.chasis;
     select.replaceChildren(new Option(state.chasis.length ? "SIN CHASIS" : "La isla no tiene chasis registrados", ""),
-      ...state.chasis.map(ch => new Option(ch.id_fisico ? `${ch.nombre} (${ch.id_fisico})` : ch.nombre || ch.id, ch.id)));
-    if (state.chasis.some(ch => String(ch.id) === String(previous))) select.value = previous;
+      ...state.chasis.map(ch => {
+        const chasisId = String(ch.id || "").trim();
+        return new Option(ch.id_fisico ? `${ch.nombre} (${ch.id_fisico})` : ch.nombre || chasisId, chasisId);
+      }));
+    if (state.chasis.some(ch => String(ch.id).trim() === String(previous).trim())) {
+      select.value = String(previous).trim();
+    }
   } catch (err) {
     if (requestId !== state.chasisRequestId) return;
     // 404: la isla aún no está registrada en la topología; se continúa sin chasis.
@@ -294,7 +308,7 @@ async function loadChasisForIsla() {
 
 async function refreshSelectedChasisAvailability() {
   if (!$('s-chasis').value) return;
-  await loadChasisForIsla();
+  await loadTransportOptions();
   fillChasisPorts();
 }
 
@@ -699,8 +713,8 @@ async function onIslaChange({ keepSelection = false } = {}) {
   const isla = $("eq-isla").value;
   if (!keepSelection) markFormatStale();
   $("equipment-tbody").replaceChildren();
-  $("equipment-source").textContent = isla ? "Cargando chasis y ruta desde Firebase..." : "Seleccione una isla y un chasis para cargar la ruta.";
-  await loadChasisForIsla();
+  $("equipment-source").textContent = isla ? "Cargando equipo y ruta de transmisión desde Firebase..." : "Seleccione una isla y un equipo de transmisión.";
+  await loadTransportOptions();
   const previousVlan = keepSelection ? state.currentVlan : "";
   state.islaSegments = [];
   state.vlanCatalog = [];
@@ -1225,10 +1239,10 @@ function updateSelectedRoutePreview() {
     return isLastClaroWithPosition ? [hop, `<${position}>`].filter(Boolean).join(" ") : hop;
 
   }).filter(Boolean);
-  if (isGpon && lastClaroIndex < 0) equipmentHops.push("<" + position + ">");
+  if (isGpon && $("s-gpon").value && lastClaroIndex < 0) equipmentHops.push("<" + position + ">");
   $("selected-route-preview").textContent = equipmentHops.length
     ? `Ruta seleccionada: ${equipmentHops.join(" → ")}`
-    : "Seleccione Equipo Chasis para optener la ruta de transmision a configurar en PE (L3).";
+    : "Seleccione un equipo de transmisión para ver la ruta a configurar en PE (L3).";
 }
 
 function addEquipmentRow(data = {}) {
@@ -1386,12 +1400,12 @@ function collectFormData() {
     sin_factibilidad: state.sinFactibilidad,
     region: $("s-region").value,
     medio: $("s-medio").value,
-    // Leer el valor seleccionado directamente evita perder la clave del chasis
-    // por una discrepancia entre el catálogo del medio y el selector visible.
-    chasis_id: $("s-chasis").value,
-    chasis_slot: $("s-chasis-slot").value,
-    chasis_puerto: $("s-chasis-puerto").value,
-    gpon_route_id: $("s-medio").value === "GPON" ? $("s-gpon-route").value : "",
+    // Cada medio envía su equipo propio; G-PON no requiere slot ni puerto.
+    chasis_id: $("s-medio").value === "GPON" ? "" : $("s-chasis").value,
+    chasis_slot: $("s-medio").value === "GPON" ? "" : $("s-chasis-slot").value,
+    chasis_puerto: $("s-medio").value === "GPON" ? "" : $("s-chasis-puerto").value,
+    gpon_id: $("s-medio").value === "GPON" ? $("s-gpon").value.trim() : "",
+    gpon_route_id: "",
     observaciones: $("s-observaciones").value,
     isla: selectedIsla(),
     vlan_num: vlanForData(),

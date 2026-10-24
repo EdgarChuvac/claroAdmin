@@ -33,7 +33,7 @@ router = APIRouter()
 
 def _alta_summary(doc: dict[str, Any]) -> dict[str, Any]:
     summary = {k: doc.get(k) for k in (
-        "alta_id", "service_id", "cliente", "tipo_servicio", "ip_wan", "region", "isla", "chasis_id",
+        "alta_id", "service_id", "cliente", "tipo_servicio", "ip_wan", "region", "isla", "chasis_id", "gpon_id",
         "operator", "operation_id", "created_at",
     )}
     summary["estado"] = doc.get("estado") or ALTA_ACTIVA
@@ -55,6 +55,19 @@ def _resolve_topology(data: dict[str, Any], form: FormatData, state: AppState) -
             raise InventoryError(str(exc)) from exc
     for key in ("chasis_nombre", "chasis_id_fisico"):
         data.pop(key, None)
+    if medio == "GPON":
+        gpon_id = form.gpon_id.strip()
+        for key in ("chasis_id", "chasis_slot", "chasis_puerto"):
+            data.pop(key, None)
+        if gpon_id:
+            gpon = state.repo.get_gpon(gpon_id)
+            if form.isla.strip() and str(gpon.get("isla_id") or "").strip().upper() != isla_doc_id(form.isla):
+                raise InventoryError(f"El equipo G-PON {gpon.get('nombre') or gpon_id} no pertenece a la isla {form.isla}.")
+            data["gpon_id"] = gpon_id
+            data["gpon_nombre"] = gpon.get("nombre") or gpon_id
+        elif not form.gpon_route_id.strip():
+            raise InventoryError("Seleccione un equipo G-PON de la isla.")
+        return
     chasis_id = form.chasis_id.strip()
     if not chasis_id:
         if form.chasis_slot.strip() or form.chasis_puerto.strip():
@@ -87,6 +100,13 @@ def _resolve_vlan_config(data: dict[str, Any], form: FormatData, state: AppState
 def _resolve_equipos_claro(data: dict[str, Any], form: FormatData, state: AppState) -> None:
     """Carga desde Firebase la ruta G-PON o la ruta asociada al chasis."""
     if form.medio.strip().upper() == "GPON":
+        gpon_id = form.gpon_id.strip()
+        if gpon_id:
+            equipos = state.repo.list_equipos_ruta_gpon(gpon_id)
+            if not equipos:
+                raise InventoryError(f"El equipo G-PON {gpon_id} no tiene equipos configurados en equipos_ruta.")
+            data["equipos_claro"] = equipos
+            return
         route_id = form.gpon_route_id.strip()
         if not route_id:
             raise InventoryError("Seleccione una ruta G-PON de la isla.")
@@ -149,6 +169,7 @@ def create_alta(req: AltaRequest, state: StateDep, operator: OperatorDep) -> dic
         "vlan": req.data.vlan_num,
         "medio": data["medio"],
         "chasis_id": data.get("chasis_id", ""),
+        "gpon_id": data.get("gpon_id", ""),
         "chasis_slot": req.data.chasis_slot.strip(),
         "chasis_puerto": req.data.chasis_puerto.strip(),
         "operator": operator,

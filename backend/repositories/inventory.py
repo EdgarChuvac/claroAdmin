@@ -1177,7 +1177,68 @@ class InventoryRepository:
         return sorted((d for d in docs if d.get("activo", True)),
                       key=lambda d: (str(d.get("nombre") or d["id"])))
 
+    def _gpon_data(self, document_id: str) -> dict[str, Any] | None:
+        """Lee un G-PON como documento directo o desde la variante anidada usada en Firebase."""
+        document_id = str(document_id or "").strip()
+        if not document_id or "/" in document_id:
+            return None
+        root = self.col("g-pon").document(document_id).get()
+        if not root.exists:
+            return None
+        data = root.to_dict() or {}
+        if any(key in data for key in ("isla_id", "equipos_ruta", "nombre", "NMONICO")):
+            return {**data, "id": root.id}
+        # Compatibilidad con la estructura ya creada: g-pon/{id}/{id}/{id}.
+        nested = self.col("g-pon").document(document_id).collection(document_id).document(document_id).get()
+        if nested.exists:
+            return {**(nested.to_dict() or {}), "id": root.id}
+        return {"id": root.id}
+
+    def list_gpon_isla(self, isla: str) -> list[dict[str, Any]]:
+        """G-PON activos de una isla, con los mismos campos principales que un chasis."""
+        isla_id = isla_doc_id(isla)
+        result = []
+        for snap in self.col("g-pon").stream():
+            data = self._gpon_data(snap.id) or {}
+            stored_isla = str(data.get("isla_id") or "").strip().upper()
+            if stored_isla != isla_id or not data.get("activo", True):
+                continue
+            result.append(data)
+        return sorted(result, key=lambda d: str(d.get("nombre") or d["id"]))
+
+    def get_gpon(self, gpon_id: str) -> dict[str, Any]:
+        data = self._gpon_data(gpon_id)
+        if data is None or not any(key in data for key in ("isla_id", "NMONICO", "nombre", "equipos_ruta")):
+            raise NotFoundError(f"El equipo G-PON {gpon_id} no existe.")
+        return data
+
+    def list_equipos_ruta_gpon(self, gpon_id: str) -> list[dict[str, Any]]:
+        """Resuelve equipos_ruta desde Equipos_Transmision/{NMONICO}/equipos/{no}."""
+        gpon = self.get_gpon(gpon_id)
+        numeros = _text_list(gpon.get("equipos_ruta"))
+        if not numeros:
+            return []
+        fields = ("rol", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
+        catalog: dict[str, dict[str, Any]] = {}
+        for collection_name in ("Equipos_Transmision", "Equipos_Transmission"):
+            equipment_doc = self.col(collection_name).document(gpon_id)
+            for subcollection_name in ("equipos", "Equipos", "EQUIPOS"):
+                for snap in equipment_doc.collection(subcollection_name).stream():
+                    raw = snap.to_dict() or {}
+                    lowered = {str(key).lower(): value for key, value in raw.items()}
+                    item = {field: str(lowered.get(field, "") or "").strip() for field in fields}
+                    item["lado"] = item["lado"].upper() or "CLARO"
+                    item["no"] = str(lowered.get("no") or lowered.get("id") or lowered.get("ie") or snap.id).strip()
+                    catalog.setdefault(item["no"], item)
+        missing = [numero for numero in numeros if numero not in catalog]
+        if missing:
+            raise NotFoundError(
+                f"No se encontraron en Firebase los equipos {', '.join(missing)} del G-PON {gpon_id}."
+            )
+        return [catalog[numero] for numero in numeros]
+
     def get_chasis(self, chasis_id: str) -> dict[str, Any]:
+        chasis_id = str(chasis_id or "").strip()
         snap = self.col("chasis").document(chasis_id).get() if chasis_id and "/" not in chasis_id else None
         if snap is None or not snap.exists:
             raise NotFoundError(f"El chasis {chasis_id} no existe.")
