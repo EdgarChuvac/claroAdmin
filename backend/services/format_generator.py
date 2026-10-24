@@ -73,13 +73,8 @@ def _slot_port(slot: str, puerto: str) -> str:
 
 
 def chasis_hop(nombre: str, id_fisico: str = "", slot: str = "", puerto: str = "") -> str:
-    """Salto del chasis en la ruta: ``CHASIS-01 (ID 123) S3|P2``."""
-    nombre = _text(nombre)
-    if not nombre:
-        return ""
-    hop = f"{nombre} (ID {_text(id_fisico)})" if _text(id_fisico) else nombre
-    sp = _slot_port(_text(slot), _text(puerto))
-    return f"{hop} {sp}" if sp else hop
+    """Etiqueta de posición que se agrega al último equipo de la ruta."""
+    return _slot_port(_text(slot), _text(puerto))
 
 
 def build_route_string(
@@ -91,12 +86,34 @@ def build_route_string(
 ) -> str:
     """Ruta: ``Rol Marca Modelo Hostname (IP) Interfaz --> … ==> MEDIO ==> (CLIENTE) DEMARCADOR --> CPE``.
 
-    Los equipos extremo Claro se encadenan según su numeración, empezando por el 1;
-    el chasis, si se eligió, es el último salto del lado Claro.
+    Los equipos extremo Claro se encadenan según su numeración, empezando por el 1.
+    Si hay posición de chasis, se agrega al último equipo Claro y se omite su interfaz de salida.
     """
     parts = []
     client_parts = []
-    for eq in sorted(equipos, key=_equipment_order):
+    claro_equipos = sorted(
+        (eq for eq in equipos if _text(eq.get("lado")).upper() != "CLIENTE"),
+        key=_equipment_order,
+    )
+    equipos_cliente = sorted(
+        (eq for eq in equipos if _text(eq.get("lado")).upper() == "CLIENTE"),
+        key=_equipment_order,
+    )
+    position = _text(chasis)
+    for index, eq in enumerate(claro_equipos):
+        name = " ".join(p for p in (_text(eq.get(k)) for k in ("rol", "marca", "modelo", "hostname")) if p)
+        ip = _text(eq.get("ip_admon"))
+        if ip:
+            name = f"{name} ({ip})".strip()
+        int_out = _text(eq.get("int_out"))
+        is_last_with_position = bool(position) and index == len(claro_equipos) - 1
+        if int_out and not is_last_with_position:
+            name = f"{name} {int_out}".strip()
+        if name:
+            if is_last_with_position:
+                name = f"{name} {position}".strip()
+            parts.append(name)
+    for eq in equipos_cliente:
         name = " ".join(p for p in (_text(eq.get(k)) for k in ("rol", "marca", "modelo", "hostname")) if p)
         ip = _text(eq.get("ip_admon"))
         if ip:
@@ -105,9 +122,7 @@ def build_route_string(
         if int_out:
             name = f"{name} {int_out}".strip()
         if name:
-            (client_parts if _text(eq.get("lado")).upper() == "CLIENTE" else parts).append(name)
-    if _text(chasis):
-        parts.append(_text(chasis))
+            client_parts.append(name)
 
     cliente_chain = f"(CLIENTE) {raisecom_model}"
     if cpe_model:
@@ -116,6 +131,8 @@ def build_route_string(
         cliente_chain = " --> ".join(client_parts)
     claro_chain = " --> ".join(parts)
     if not claro_chain:
+        if position:
+            return f"{position} ==> {medio} ==> {cliente_chain}" if medio else f"{position} ==> {cliente_chain}"
         return cliente_chain
     medio = _text(medio)
     return f"{claro_chain} ==> {medio} ==> {cliente_chain}" if medio else f"{claro_chain} ==> {cliente_chain}"
@@ -200,10 +217,13 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
     medio = catalog.medios.get(medio_key)
     equipo_cpe = _text(data.get("equipo_cpe")) or defaults.equipo_cpe
     demarcador = _text(data.get("equipo_raisecom")) or defaults.equipo_raisecom
+    chasis_position = chasis_hop(data.get("chasis_nombre"), data.get("chasis_id_fisico"),
+                                 data.get("chasis_slot"), data.get("chasis_puerto"))
+    if medio_key == "GPON":
+        chasis_position = "<Slot X|Puerto X|Onu ID X>"
     ruta = _text(data.get("ruta_manual")) or build_route_string(
         data.get("equipos_claro") or [], demarcador, equipo_cpe, catalog.medio_ruta(medio_key),
-        chasis_hop(data.get("chasis_nombre"), data.get("chasis_id_fisico"),
-                   data.get("chasis_slot"), data.get("chasis_puerto")),
+        chasis_position,
     )
     obs_medio = _text(data.get("obs_medio"))
 

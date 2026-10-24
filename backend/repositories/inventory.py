@@ -962,14 +962,90 @@ class InventoryRepository:
             )
         return [catalog[numero] for numero in numeros]
 
+    def list_gpon_routes(self, isla: str) -> list[str]:
+        """Lista las rutas G-PON disponibles bajo Equipos_Transmision/{isla}/g-pon."""
+        isla_keys = {
+            re.sub(r"[^A-Z0-9_]+", "_", normalize_isla(isla)).strip("_"),
+            isla_doc_id(isla),
+            normalize_isla(isla),
+        }
+        routes: set[str] = set()
+        for collection_name in ("Equipos_Transmision", "Equipos_Transmission"):
+            for island_key in isla_keys:
+                if not island_key:
+                    continue
+                island_doc = self.col(collection_name).document(island_key)
+                for gpon_collection in ("g-pon", "G-PON", "gpon", "GPON"):
+                    # En Firestore la ruta es: colección raíz / documento isla /
+                    # colección g-pon / documento "equipos" / subcolección "equipos".
+                    gpon_doc = island_doc.collection(gpon_collection).document("equipos")
+                    for equipos_collection in ("equipos", "Equipos", "EQUIPOS"):
+                        routes.update(
+                            snap.id for snap in gpon_doc.collection(equipos_collection).stream()
+                        )
+        return sorted(routes)
+
+    def list_gpon_route_equipment(self, isla: str, route_id: str) -> list[dict[str, Any]]:
+        """Lee los equipos ordenados de una ruta G-PON de la isla seleccionada."""
+        if route_id not in self.list_gpon_routes(isla):
+            raise NotFoundError(f"No existe la ruta G-PON {route_id} para la isla {isla}.")
+        isla_keys = {
+            re.sub(r"[^A-Z0-9_]+", "_", normalize_isla(isla)).strip("_"),
+            isla_doc_id(isla),
+            normalize_isla(isla),
+        }
+        fields = ("rol", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
+        equipment_by_number: dict[str, dict[str, Any]] = {}
+        for collection_name in ("Equipos_Transmision", "Equipos_Transmission"):
+            for island_key in isla_keys:
+                if not island_key:
+                    continue
+                island_doc = self.col(collection_name).document(island_key)
+                for gpon_collection in ("g-pon", "G-PON", "gpon", "GPON"):
+                    gpon_doc = island_doc.collection(gpon_collection).document("equipos")
+                    for equipos_collection in ("equipos", "Equipos", "EQUIPOS"):
+                        route_doc = gpon_doc.collection(equipos_collection).document(route_id)
+                        for child_collection in ("equipos", "Equipos", "EQUIPOS"):
+                            for snap in route_doc.collection(child_collection).stream():
+                                raw = snap.to_dict() or {}
+                                lowered = {str(key).lower(): value for key, value in raw.items()}
+                                item = {field: str(lowered.get(field, "") or "").strip()
+                                        for field in fields}
+                                item["lado"] = item["lado"].upper() or "CLARO"
+                                item["no"] = str(lowered.get("no") or snap.id).strip()
+                                equipment_by_number.setdefault(item["no"], item)
+        return sorted(
+            equipment_by_number.values(),
+            key=lambda equipo: (not equipo["no"].isdigit(),
+                               int(equipo["no"]) if equipo["no"].isdigit() else equipo["no"]),
+        )
+
     def list_equipos_ruta_chasis(self, chasis_id: str) -> list[dict[str, Any]]:
-        """Resuelve la secuencia definida en ``chasis.equipos_ruta`` desde Firebase."""
+        """Resuelve los equipos desde la subcolección propia del chasis en Firebase."""
         chasis = self.get_chasis(chasis_id)
         numeros = _text_list(chasis.get("equipos_ruta"))
-        isla = chasis.get("isla", "")
-        if not isla and chasis.get("isla_id"):
-            isla = self.get_isla(chasis["isla_id"]).get("nombre", "")
-        return self.get_Equipos_Transmision(isla, numeros)
+        if not numeros:
+            return []
+
+        fields = ("rol", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
+        catalog: dict[str, dict[str, Any]] = {}
+        for collection_name in ("Equipos_Transmision", "Equipos_Transmission"):
+            chasis_doc = self.col(collection_name).document(chasis_id)
+            for subcollection_name in ("equipos", "Equipos", "EQUIPOS"):
+                for snap in chasis_doc.collection(subcollection_name).stream():
+                    raw = snap.to_dict() or {}
+                    lowered = {str(key).lower(): value for key, value in raw.items()}
+                    item = {field: str(lowered.get(field, "") or "").strip() for field in fields}
+                    item["lado"] = item["lado"].upper() or "CLARO"
+                    item["no"] = str(lowered.get("no") or snap.id).strip()
+                    catalog.setdefault(item["no"], item)
+
+        missing = [numero for numero in numeros if numero not in catalog]
+        if missing:
+            raise NotFoundError(
+                f"No se encontraron en Firebase los equipos {', '.join(missing)} del chasis {chasis_id}."
+            )
+        return [catalog[numero] for numero in numeros]
 
     def replace_centrales(self, centrales: list[dict[str, Any]]) -> int:
         existing = {snap.id for snap in self.col("centrales").stream()}

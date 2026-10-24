@@ -85,10 +85,18 @@ def _resolve_vlan_config(data: dict[str, Any], form: FormatData, state: AppState
 
 
 def _resolve_equipos_claro(data: dict[str, Any], form: FormatData, state: AppState) -> None:
-    """Carga la ruta ordenada que Firebase asocia al chasis seleccionado."""
-    equipos = state.repo.list_equipos_ruta_chasis(form.chasis_id) if form.chasis_id else []
-    if form.chasis_id and not equipos:
-        raise InventoryError(f"El chasis {form.chasis_id} no tiene equipos configurados en equipos_ruta.")
+    """Carga desde Firebase la ruta G-PON o la ruta asociada al chasis."""
+    if form.medio.strip().upper() == "GPON":
+        route_id = form.gpon_route_id.strip()
+        if not route_id:
+            raise InventoryError("Seleccione una ruta G-PON de la isla.")
+        equipos = state.repo.list_gpon_route_equipment(form.isla, route_id)
+        if not equipos:
+            raise InventoryError(f"La ruta G-PON {route_id} no tiene equipos cargados.")
+    else:
+        equipos = state.repo.list_equipos_ruta_chasis(form.chasis_id) if form.chasis_id else []
+        if form.chasis_id and not equipos:
+            raise InventoryError(f"El chasis {form.chasis_id} no tiene equipos configurados en equipos_ruta.")
     data["equipos_claro"] = equipos
 
 

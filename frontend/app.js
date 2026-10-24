@@ -7,7 +7,9 @@ const state = {
   config: null,
   islasRequestId: 0,
   chasisRequestId: 0,
+  gponRouteRequestId: 0,
   chasis: [],
+  equipmentRoute: [],
   operator: "",
   clientSession: "",
   sheets: [],
@@ -85,6 +87,9 @@ function applyMedioGestion() {
 
 async function onMedioChange() {
   $("grp-chasis").hidden = !medioUsaChasis();
+  const isGpon = $("s-medio").value === "GPON";
+  $("grp-gpon-route").hidden = !isGpon;
+  $("s-gpon-route").required = isGpon;
   applyMedioGestion();
   markFormatStale();
   await loadChasisForIsla();
@@ -129,16 +134,44 @@ function fillChasisPorts() {
 function onChasisSlotChange() {
   $("s-chasis-puerto").value = "";
   fillChasisPorts();
+  selectFirstAvailableChasisPort();
+  updateSelectedRoutePreview();
   markFormatStale();
 }
 
 async function onChasisChange() {
+  // Cada chasis tiene sus propias posiciones; no arrastrar la selección anterior.
+  $("s-chasis-slot").value = "";
+  $("s-chasis-puerto").value = "";
   fillChasisPorts();
+  const slot = $("s-chasis-slot");
+  const firstAvailableSlot = Array.from(slot.options).find(option => option.value && !option.disabled);
+  if (firstAvailableSlot) {
+    slot.value = firstAvailableSlot.value;
+    fillChasisPorts();
+    selectFirstAvailableChasisPort();
+  }
+  updateSelectedRoutePreview();
   markFormatStale();
   await loadEquiposRutaChasis();
 }
 
+function onChasisPositionChange() {
+  updateSelectedRoutePreview();
+  markFormatStale();
+}
+
+function selectFirstAvailableChasisPort() {
+  const port = $("s-chasis-puerto");
+  const firstAvailablePort = Array.from(port.options).find(option => option.value && !option.disabled);
+  port.value = firstAvailablePort ? firstAvailablePort.value : "";
+}
+
 async function loadEquiposRutaChasis() {
+  if ($("s-medio").value === "GPON") {
+    await loadGponRouteForIsla();
+    return;
+  }
   const chasisId = $("s-chasis").value;
   if (!chasisId) {
     renderEquipmentRows([], "Seleccione el chasis para cargar su ruta desde Firebase.");
@@ -158,6 +191,74 @@ async function loadEquiposRutaChasis() {
   } catch (err) {
     if ($("s-chasis").value === chasisId) renderEquipmentRows([], "No se pudo cargar la ruta desde Firebase.");
     showError(err, "No se pudo cargar la ruta de equipos del chasis");
+  }
+}
+
+async function loadGponRouteForIsla() {
+  const requestId = ++state.gponRouteRequestId;
+  const select = $("s-gpon-route");
+  const isla = selectedIsla();
+  const previous = select.value;
+  if (!isla) {
+    select.replaceChildren(new Option("Seleccione una isla primero", ""));
+    select.disabled = true;
+    renderEquipmentRows([], "Seleccione la isla para cargar sus rutas G-PON desde Firebase.");
+    updateGenerationAvailability();
+    return;
+  }
+  select.replaceChildren(new Option("Cargando rutas G-PON...", ""));
+  select.disabled = true;
+  try {
+    const result = await api("/api/gpon-routes?" + new URLSearchParams({ isla }));
+    if (requestId !== state.gponRouteRequestId || $("s-medio").value !== "GPON" || selectedIsla() !== isla) return;
+    const routes = result.routes || [];
+    select.replaceChildren(
+      new Option(routes.length ? "Seleccione la ruta G-PON" : "No hay rutas G-PON para " + isla, ""),
+      ...routes.map(route => new Option(route, route)),
+    );
+    if (routes.includes(previous)) select.value = previous;
+    else if (routes.length === 1) select.value = routes[0];
+    select.disabled = !routes.length;
+    updateGenerationAvailability();
+    if (select.value) await loadSelectedGponRoute(requestId, isla);
+    else renderEquipmentRows([], routes.length
+      ? "Seleccione la ruta G-PON para cargar sus equipos."
+      : "Firebase no tiene rutas G-PON registradas para " + isla + ".");
+  } catch (err) {
+    if (requestId !== state.gponRouteRequestId) return;
+    select.replaceChildren(new Option("No se pudieron cargar las rutas G-PON", ""));
+    renderEquipmentRows([], "No se pudieron cargar las rutas G-PON desde Firebase.");
+    showError(err, "No se pudieron cargar las rutas G-PON");
+  }
+}
+
+async function onGponRouteChange() {
+  markFormatStale();
+  updateGenerationAvailability();
+  await loadSelectedGponRoute();
+}
+
+async function loadSelectedGponRoute(requestId = ++state.gponRouteRequestId, isla = selectedIsla()) {
+  const routeId = $("s-gpon-route").value;
+  if (!isla || !routeId) {
+    renderEquipmentRows([], "Seleccione una ruta G-PON para cargar sus equipos.");
+    return;
+  }
+  try {
+    const result = await api("/api/gpon-routes/" + encodeURIComponent(routeId) + "?"
+      + new URLSearchParams({ isla }));
+    if (requestId !== state.gponRouteRequestId || $("s-medio").value !== "GPON"
+        || selectedIsla() !== isla || $("s-gpon-route").value !== routeId) return;
+    const equipos = result.equipos || [];
+    renderEquipmentRows(equipos, "La ruta G-PON " + routeId + " no tiene equipos cargados.");
+    if (equipos.length) {
+      $("equipment-source").textContent = "Firebase: isla " + isla + "; ruta G-PON " + routeId
+        + "; " + equipos.length + " equipo(s). Orden: " + equipos.map(eq => eq.no).join(" → ") + ".";
+    }
+  } catch (err) {
+    if (requestId !== state.gponRouteRequestId) return;
+    renderEquipmentRows([], "No se pudo cargar la ruta G-PON " + routeId + ".");
+    showError(err, "No se pudo cargar la ruta G-PON");
   }
 }
 
@@ -705,7 +806,8 @@ function fillVlanData() {
     || state.vlanCatalog.find(v => v.vlan === vlan && v.config);
   const tpl = currentTemplate();
   const values = saved
-    ? { rd: saved.rd, vrf_name: saved.vrf_name, vrf_desc: saved.vrf_desc, vlan_desc: saved.vlan_desc, config: saved.config }
+    ? { rd: saved.rd, vrf_name: saved.vrf_name || saved["vpn-name"] || saved.vpn_name,
+        vrf_desc: saved.vrf_desc, vlan_desc: saved.vlan_desc, config: saved.config }
     : { rd: tpl ? tpl.rd : "", vrf_name: tpl ? tpl.vrf_name : "", vrf_desc: tpl ? tpl.vrf_desc : "", vlan_desc: "", config: "" };
   $("eq-rd").value = values.rd || "";
   $("eq-vrf-name").value = values.vrf_name || "";
@@ -1080,11 +1182,53 @@ function getEquipmentRowsData() {
 }
 
 function renderEquipmentRows(equipos, emptyMessage = "No hay equipos registrados en Firebase para esta isla.") {
+  state.equipmentRoute = equipos || [];
   $("equipment-tbody").replaceChildren(...equipos.map(addEquipmentRow));
   $("equipment-source").textContent = equipos.length
     ? `${equipos.length} equipo(s) de la ruta cargados desde Firebase en el orden configurado.`
     : emptyMessage;
+  updateSelectedRoutePreview();
   markFormatStale();
+}
+
+function updateSelectedRoutePreview() {
+  const equipos = state.equipmentRoute || [];
+  const chasis = selectedChasis();
+  const isGpon = $("s-medio").value === "GPON";
+
+  const position = isGpon ? "Slot X|Puerto X|Onu ID X" : chasis ? [
+    $("s-chasis-slot").value && `Slot ${$("s-chasis-slot").value}`,
+    $("s-chasis-puerto").value && `Puerto ${$("s-chasis-puerto").value}`,
+  ].filter(Boolean).join("|") : "";
+
+  const lastClaroIndex = equipos.reduce((last, equipo, index) =>
+    String(equipo.lado || "").toUpperCase() === "CLIENTE" ? last : index, -1);
+  // Aqui presento la interfaz que seleccione en el chasis
+  //   // Reflejarla también en la tabla, cuya ruta original viene de Firebase.
+  Array.from($("equipment-tbody").querySelectorAll("tr")).forEach((tr, index) => {
+    const ifaceInput = tr.querySelector("td:nth-child(7) input");
+    if (!ifaceInput) return;
+    const isLastClaroWithPosition = !isGpon && Boolean(chasis && position) && index === lastClaroIndex;
+    ifaceInput.value = isLastClaroWithPosition 
+    ? `<${position}>` : 
+    String(equipos[index]?.int_out || "").trim();
+  });
+
+  const equipmentHops = equipos.map((equipo, index) => {
+    const identity = [equipo.rol, equipo.marca, equipo.modelo, equipo.hostname]
+      .map(value => String(value || "").trim()).filter(Boolean).join(" ");
+    const ip = String(equipo.ip_admon || "").trim();
+    const isLastClaroWithPosition = Boolean(position) && index === lastClaroIndex;
+    const iface = isLastClaroWithPosition ? "" : String(equipo.int_out || "").trim();
+    const hop = [identity && `${identity}${ip ? ` (${ip})` : ""}`, iface].filter(Boolean).join(" ");
+
+    return isLastClaroWithPosition ? [hop, `<${position}>`].filter(Boolean).join(" ") : hop;
+
+  }).filter(Boolean);
+  if (isGpon && lastClaroIndex < 0) equipmentHops.push("<" + position + ">");
+  $("selected-route-preview").textContent = equipmentHops.length
+    ? `Ruta seleccionada: ${equipmentHops.join(" → ")}`
+    : "Seleccione Equipo Chasis para optener la ruta de transmision a configurar en PE (L3).";
 }
 
 function addEquipmentRow(data = {}) {
@@ -1247,6 +1391,7 @@ function collectFormData() {
     chasis_id: $("s-chasis").value,
     chasis_slot: $("s-chasis-slot").value,
     chasis_puerto: $("s-chasis-puerto").value,
+    gpon_route_id: $("s-medio").value === "GPON" ? $("s-gpon-route").value : "",
     observaciones: $("s-observaciones").value,
     isla: selectedIsla(),
     vlan_num: vlanForData(),

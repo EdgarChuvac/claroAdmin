@@ -133,10 +133,17 @@
                   <select id="s-chasis-slot" onchange="onChasisSlotChange()" aria-label="Slot del chasis" disabled>
                     <option value="">Slot</option>
                   </select>
-                  <select id="s-chasis-puerto" onchange="markFormatStale()" aria-label="Puerto del chasis" disabled>
+                  <select id="s-chasis-puerto" onchange="onChasisPositionChange()" aria-label="Puerto del chasis" disabled>
                     <option value="">Puerto</option>
                   </select>
                 </div>
+            </div>
+
+            <div class="form-group" id="grp-gpon-route" hidden>
+              <label for="s-gpon-route">Ruta de equipos G-PON:</label>
+              <select id="s-gpon-route" onchange="onGponRouteChange()">
+                <option value="">Seleccione una isla primero</option>
+              </select>
             </div>
 
               <div class="form-group col-span-2">
@@ -208,7 +215,7 @@
         <div class="card-header"><h3>Parámetros de Red y Enrutamiento (Equipamiento)</h3></div>
         <div class="card-body grid-3">
           <div class="form-group">
-            <label>RED WAN (con máscara CIDR):</label>
+            <label>RED WAN</label>
             <input type="text" id="eq-red-wan" value="" class="input-highlight" readonly>
           </div>
           <div class="form-group">
@@ -225,9 +232,10 @@
             <input type="text" id="eq-rd" value="" maxlength="60">
           </div>
           <div class="form-group">
-            <label>Nombre de VRF:</label>
+            <label>Nombre de VPN:</label>
             <input type="text" id="eq-vrf-name" value="" maxlength="80">
           </div>
+          
           <div class="form-group">
             <label>IPs adicionales reservadas:</label>
             <input type="text" id="eq-ips-adicionales" value="" class="input-highlight" readonly>
@@ -292,6 +300,7 @@
               <tbody id="equipment-tbody"></tbody>
             </table>
           </div>
+          <p id="selected-route-preview" class="hint mono" aria-live="polite">Seleccione un chasis para ver la ruta configurada.</p>
         </div>
       </div>
     </section>

@@ -54,6 +54,11 @@ class FakeDocumentReference:
     def delete(self) -> None:
         self._client._apply(("delete", self, None, False))
 
+    def collection(self, name: str) -> "FakeCollectionReference":
+        if not name or "/" in name:
+            raise ValueError("Nombre de subcolección inválido.")
+        return FakeCollectionReference(self._client, f"{self.path}/{name}")
+
 
 class FakeQuery:
     def __init__(self, client: "FakeFirestoreClient", collection: str):

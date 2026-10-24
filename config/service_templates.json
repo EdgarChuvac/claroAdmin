@@ -87,7 +87,7 @@
     },
     "GPON": {
       "label": "G-PON",
-      "ruta": "FO",
+      "ruta": "G-PON",
       "demarcador": "ONT",
       "vrf_gestor": "DSL_ACCESO",
       "vlan_gestor": "1698",

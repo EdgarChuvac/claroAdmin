@@ -115,6 +115,22 @@ def list_equipos(state: StateDep, chasis_id: str = Query(min_length=1, max_lengt
         "equipos": serialize(state.repo.list_equipos_ruta_chasis(chasis_id)),
     }
 
+@router.get("/api/gpon-routes")
+def list_gpon_routes(state: StateDep, isla: str = Query(min_length=1, max_length=60)) -> dict[str, Any]:
+    isla = tracing.clean_text(isla, 60)
+    return {"isla": isla, "routes": state.repo.list_gpon_routes(isla)}
+
+@router.get("/api/gpon-routes/{route_id}")
+def get_gpon_route(route_id: str, state: StateDep,
+                   isla: str = Query(min_length=1, max_length=60)) -> dict[str, Any]:
+    isla = tracing.clean_text(isla, 60)
+    route_id = tracing.clean_text(route_id, 100)
+    return {
+        "isla": isla,
+        "route_id": route_id,
+        "equipos": serialize(state.repo.list_gpon_route_equipment(isla, route_id)),
+    }
+
 @router.put("/api/vlans")
 def upsert_vlan(req: VlanRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
     tracing.audit("vlan.upsert", isla=req.isla, vlan=req.vlan)
