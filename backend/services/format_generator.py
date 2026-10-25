@@ -283,7 +283,7 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
     designer = " ".join(p for p in (disenador, tel_disenador) if p)
     lines = [
         f"DISEÑO REALIZADO POR {designer} | FECHA {fecha}".strip(" |"),
-        f"***********************ALTA DE {template.banner}**********************",
+        f"***********************ALTA DE {template.banner}**********************************",
         "",
     ]
     if factibilidad_bloque:
