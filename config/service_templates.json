@@ -78,7 +78,7 @@
   "medios": {
     "FIBRA": {
       "label": "FIBRA ÓPTICA",
-      "ruta": "FO",
+      "ruta": "F.O.",
       "usa_chasis": true
     },
     "RADIO": {
@@ -87,7 +87,7 @@
     },
     "GPON": {
       "label": "G-PON",
-      "ruta": "G-PON",
+      "ruta": "F.O.",
       "demarcador": "ONT",
       "vrf_gestor": "DSL_ACCESO",
       "vlan_gestor": "1698",

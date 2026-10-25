@@ -101,7 +101,7 @@ def build_route_string(
     )
     position = _text(chasis)
     for index, eq in enumerate(claro_equipos):
-        name = " ".join(p for p in (_text(eq.get(k)) for k in ("rol", "marca", "modelo", "hostname")) if p)
+        name = " ".join(p for p in (_text(eq.get(k)) for k in ("rol", "sitio", "marca", "modelo", "hostname")) if p)
         ip = _text(eq.get("ip_admon"))
         if ip:
             name = f"{name} ({ip})".strip()
@@ -114,7 +114,7 @@ def build_route_string(
                 name = f"{name} {position}".strip()
             parts.append(name)
     for eq in equipos_cliente:
-        name = " ".join(p for p in (_text(eq.get(k)) for k in ("rol", "marca", "modelo", "hostname")) if p)
+        name = " ".join(p for p in (_text(eq.get(k)) for k in ("rol", "sitio", "marca", "modelo", "hostname")) if p)
         ip = _text(eq.get("ip_admon"))
         if ip:
             name = f"{name} ({ip})".strip()

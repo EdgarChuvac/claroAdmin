@@ -914,7 +914,7 @@ class InventoryRepository:
         isla_id = re.sub(r"[^A-Z0-9_]+", "_", normalize_isla(isla)).strip("_")
         if not isla_id:
             return []
-        fields = ("rol", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
+        fields = ("rol", "sitio", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
         # Se consultan las dos grafías usadas al configurar Firebase para mantener
         # compatibilidad con datos cargados como ``Transmision`
         equipos_por_id: dict[str, dict[str, Any]] = {}
@@ -994,7 +994,7 @@ class InventoryRepository:
             isla_doc_id(isla),
             normalize_isla(isla),
         }
-        fields = ("rol", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
+        fields = ("rol", "sitio", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
         equipment_by_number: dict[str, dict[str, Any]] = {}
         for collection_name in ("Equipos_Transmision", "Equipos_Transmission"):
             for island_key in isla_keys:
@@ -1027,7 +1027,7 @@ class InventoryRepository:
         if not numeros:
             return []
 
-        fields = ("rol", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
+        fields = ("rol", "sitio", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
         catalog: dict[str, dict[str, Any]] = {}
         for collection_name in ("Equipos_Transmision", "Equipos_Transmission"):
             chasis_doc = self.col(collection_name).document(chasis_id)
@@ -1218,7 +1218,7 @@ class InventoryRepository:
         numeros = _text_list(gpon.get("equipos_ruta"))
         if not numeros:
             return []
-        fields = ("rol", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
+        fields = ("rol", "sitio", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
         catalog: dict[str, dict[str, Any]] = {}
         for collection_name in ("Equipos_Transmision", "Equipos_Transmission"):
             equipment_doc = self.col(collection_name).document(gpon_id)

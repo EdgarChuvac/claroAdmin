@@ -1211,8 +1211,8 @@ function updateSelectedRoutePreview() {
   const isGpon = $("s-medio").value === "GPON";
 
   const position = isGpon ? "Slot X|Puerto X|Onu ID X" : chasis ? [
-    $("s-chasis-slot").value && `Slot ${$("s-chasis-slot").value}`,
-    $("s-chasis-puerto").value && `Puerto ${$("s-chasis-puerto").value}`,
+    $("s-chasis-slot").value && `S${$("s-chasis-slot").value}`,
+    $("s-chasis-puerto").value && `P${$("s-chasis-puerto").value}`,
   ].filter(Boolean).join("|") : "";
 
   const lastClaroIndex = equipos.reduce((last, equipo, index) =>
@@ -1220,7 +1220,7 @@ function updateSelectedRoutePreview() {
   // Aqui presento la interfaz que seleccione en el chasis
   //   // Reflejarla también en la tabla, cuya ruta original viene de Firebase.
   Array.from($("equipment-tbody").querySelectorAll("tr")).forEach((tr, index) => {
-    const ifaceInput = tr.querySelector("td:nth-child(7) input");
+    const ifaceInput = tr.querySelector("td:nth-child(8) input");
     if (!ifaceInput) return;
     const isLastClaroWithPosition = !isGpon && Boolean(chasis && position) && index === lastClaroIndex;
     ifaceInput.value = isLastClaroWithPosition 
@@ -1229,7 +1229,7 @@ function updateSelectedRoutePreview() {
   });
 
   const equipmentHops = equipos.map((equipo, index) => {
-    const identity = [equipo.rol, equipo.marca, equipo.modelo, equipo.hostname]
+    const identity = [equipo.rol, equipo.sitio, equipo.marca, equipo.modelo, equipo.hostname]
       .map(value => String(value || "").trim()).filter(Boolean).join(" ");
     const ip = String(equipo.ip_admon || "").trim();
     const isLastClaroWithPosition = Boolean(position) && index === lastClaroIndex;
@@ -1248,7 +1248,7 @@ function updateSelectedRoutePreview() {
 function addEquipmentRow(data = {}) {
   const tbody = $("equipment-tbody");
   const headers = document.querySelectorAll("#equipment-table th");
-  const values = [data.no || tbody.querySelectorAll("tr").length + 1, data.rol || "", data.marca || "", data.modelo || "",
+  const values = [data.no || tbody.querySelectorAll("tr").length + 1, data.rol || "", data.sitio || "", data.marca || "", data.modelo || "",
     data.hostname || "", data.ip_admon || "", data.int_out || "", data.lado || "CLARO"];
   const tr = el("tr", {}, ...values.map((value, index) =>
     el("td", {}, el("input", { type: "text", value: String(value), readOnly: true, "aria-label": headers[index].textContent.trim() }))));
