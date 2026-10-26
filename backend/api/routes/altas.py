@@ -9,7 +9,7 @@ from fastapi import APIRouter, Query
 
 from ...core import tracing
 from ...core.errors import InventoryError
-from ...repositories.inventory import ALTA_ACTIVA, isla_doc_id
+from ...repositories.inventory import ALTA_ACTIVA, isla_doc_id, normalize_isla
 from ...schemas.requests import (
     AltaRequest,
     FormatData,
@@ -33,7 +33,7 @@ router = APIRouter()
 
 def _alta_summary(doc: dict[str, Any]) -> dict[str, Any]:
     summary = {k: doc.get(k) for k in (
-        "alta_id", "service_id", "cliente", "tipo_servicio", "ip_wan", "region", "isla", "chasis_id", "gpon_id",
+        "alta_id", "service_id", "cliente", "tipo_servicio", "ip_wan", "region", "isla", "chasis_id", "gpon_id", "radio_id",
         "operator", "operation_id", "created_at",
     )}
     summary["estado"] = doc.get("estado") or ALTA_ACTIVA
@@ -48,6 +48,29 @@ def _resolve_topology(data: dict[str, Any], form: FormatData, state: AppState) -
     if medio not in state.catalog.medios:
         raise InventoryError(f"Medio de transmisión desconocido: {form.medio or '(vacío)'}.")
     data["medio"] = medio
+    ultima_milla_role = {"FIBRA": "mc", "RADIO": "radio", "GPON": "ont"}[medio]
+    perfil_ultima_milla = state.repo.get_ultima_milla_profile(ultima_milla_role)
+    data["equipo_raisecom"] = " ".join(
+        str(value).strip() for value in (perfil_ultima_milla["rol"], perfil_ultima_milla["marca"],
+                                        perfil_ultima_milla["modelo"]) if str(value or "").strip()
+    )
+    data["gestion_label"] = perfil_ultima_milla["marca"] or perfil_ultima_milla["rol"]
+    data["vrf_gestor"] = perfil_ultima_milla["vrf_gestor"]
+    data["vlan_gestor"] = perfil_ultima_milla["vlan_gestor"]
+    for field in ("red_gestor", "gw_gestor", "ip_gestor_raisecom"):
+        data[field] = str(data.get(field) or "").strip() or perfil_ultima_milla[field]
+    data["desc_gestor"] = ""
+    equipo_cpe_id = form.equipo_cpe_id.strip()
+    if equipo_cpe_id:
+        equipo = state.repo.get_ultima_milla(equipo_cpe_id)
+        rol = str(equipo.get("rol") or "").strip().upper()
+        if rol not in {"CPE", "FW"}:
+            raise InventoryError("Seleccione un equipo con rol CPE o FW.")
+        partes = [rol, equipo.get("marca"), equipo.get("modelo")]
+        data["equipo_cpe"] = " ".join(str(parte).strip() for parte in partes if str(parte or "").strip())
+        ip_admon = str(equipo.get("ip_admon") or "").strip()
+        if ip_admon:
+            data["equipo_cpe"] += f" ({ip_admon})"
     if form.region.strip():
         try:
             data["region"] = state.catalog.region(form.region)
@@ -67,6 +90,18 @@ def _resolve_topology(data: dict[str, Any], form: FormatData, state: AppState) -
             data["gpon_nombre"] = gpon.get("nombre") or gpon_id
         elif not form.gpon_route_id.strip():
             raise InventoryError("Seleccione un equipo G-PON de la isla.")
+        return
+    if medio == "RADIO":
+        radio_id = form.radio_id.strip()
+        if not radio_id:
+            raise InventoryError("Seleccione un equipo Radio de la isla.")
+        equipo = state.repo.get_radio(radio_id)
+        if form.isla.strip() and normalize_isla(str(equipo.get("sitio") or equipo.get("isla") or "")) != normalize_isla(form.isla):
+            raise InventoryError(f"El equipo Radio {radio_id} no corresponde a la isla {form.isla}.")
+        data["radio_id"] = radio_id
+        data["radio_nombre"] = equipo.get("nombre") or radio_id
+        for key in ("chasis_id", "chasis_slot", "chasis_puerto"):
+            data.pop(key, None)
         return
     chasis_id = form.chasis_id.strip()
     if not chasis_id:
@@ -99,7 +134,10 @@ def _resolve_vlan_config(data: dict[str, Any], form: FormatData, state: AppState
 
 def _resolve_equipos_claro(data: dict[str, Any], form: FormatData, state: AppState) -> None:
     """Carga desde Firebase la ruta G-PON o la ruta asociada al chasis."""
-    if form.medio.strip().upper() == "GPON":
+    if form.medio.strip().upper() == "RADIO":
+        equipos = state.repo.list_equipos_ruta_radio(form.isla, form.radio_id.strip())
+        if not equipos: raise InventoryError(f"El equipo Radio {form.radio_id} no tiene equipos configurados en equipos_ruta.")
+    elif form.medio.strip().upper() == "GPON":
         gpon_id = form.gpon_id.strip()
         if gpon_id:
             equipos = state.repo.list_equipos_ruta_gpon(gpon_id)
@@ -170,6 +208,7 @@ def create_alta(req: AltaRequest, state: StateDep, operator: OperatorDep) -> dic
         "medio": data["medio"],
         "chasis_id": data.get("chasis_id", ""),
         "gpon_id": data.get("gpon_id", ""),
+        "radio_id": data.get("radio_id", ""),
         "chasis_slot": req.data.chasis_slot.strip(),
         "chasis_puerto": req.data.chasis_puerto.strip(),
         "operator": operator,

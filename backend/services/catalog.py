@@ -92,7 +92,7 @@ class Central(BaseModel):
 
 DEFAULT_MEDIOS = {
     "FIBRA": Medio(label="FIBRA ÓPTICA", ruta="F.O.", usa_chasis=True),
-    "RADIO": Medio(label="RADIOENLACE", ruta="RADIO"),
+    "RADIO": Medio(label="RADIOENLACE", ruta="RTX"),
     "GPON": Medio(label="G-PON", ruta="F.O.", demarcador="ONT"),
 }
 

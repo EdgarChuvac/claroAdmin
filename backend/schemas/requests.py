@@ -85,10 +85,12 @@ class FormatData(BaseModel):
     chasis_slot: str = Field(default="", max_length=20)
     chasis_puerto: str = Field(default="", max_length=20)
     gpon_id: str = Field(default="", max_length=64)
+    radio_id: str = Field(default="", max_length=64)
     gpon_route_id: str = Field(default="", max_length=100)
     velocidad: str = ""
     ips_count: str = "1"
     equipo_cpe: str = ""
+    equipo_cpe_id: str = Field(default="", max_length=64)
     factibilidad: str = ""
     observaciones: str = ""
     items_aceptados: list[str] = Field(default_factory=list)

@@ -83,7 +83,7 @@
     },
     "RADIO": {
       "label": "RADIOENLACE",
-      "ruta": "RADIO"
+      "ruta": "RTX"
     },
     "GPON": {
       "label": "G-PON",

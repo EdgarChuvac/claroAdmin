@@ -35,9 +35,9 @@
 
     <nav class="tabs-nav">
       <button class="tab-btn active" data-tab="tab-principal">Principal</button>
-      <button class="tab-btn" data-tab="tab-servicio">Servicio</button>
-      <button class="tab-btn" data-tab="tab-equipamiento">Equipamiento</button>
-      <button class="tab-btn" data-tab="tab-medio">Medio</button>
+      <button class="tab-btn" data-tab="tab-servicio">Medio</button>
+      <button class="tab-btn" data-tab="tab-equipamiento">Recursos</button>
+      <button class="tab-btn" data-tab="tab-medio">Equipamiento</button>
       <button class="tab-btn highlight-tab" data-tab="tab-generar">⚡ Generar Formato</button>
       <button class="tab-btn tab-right" data-tab="tab-consultas" data-always-enabled="true">🔎 Consultas</button>
     </nav>
@@ -142,6 +142,13 @@
             <div class="form-group" id="grp-gpon" hidden>
               <label for="s-gpon">Equipo G-PON:</label>
               <select id="s-gpon" onchange="onGponChange()">
+                <option value="">Seleccione una isla primero</option>
+              </select>
+            </div>
+
+            <div class="form-group" id="grp-radio" hidden>
+              <label for="s-radio">Equipo Radio:</label>
+              <select id="s-radio" onchange="onRadioChange()">
                 <option value="">Seleccione una isla primero</option>
               </select>
             </div>
@@ -294,7 +301,7 @@
                   <th style="width: 120px;">Modelo</th>
                   <th>Hostname</th>
                   <th style="width: 150px;">IP Admon.</th>
-                  <th style="width: 150px;">Interfaz</th>
+                  <th style="width: 150px;">Interfaz OUT</th>
                   <th style="width: 90px;">Lado</th>
                 </tr>
               </thead>
@@ -312,25 +319,18 @@
         <div class="card-header"><h3>Detalles de Medio Físico y Enlace</h3></div>
         <div class="card-body grid-2">
           <div class="form-group">
-            <label for="m-raisecom">Equipo demarcador (Raisecom / ONT):</label>
-            <input type="text" id="m-raisecom" value="">
-          </div>
-          <div class="form-group"></div>
-          <div class="form-group">
-            <label for="m-vrf-gestor">VRF de gestión:</label>
-            <input type="text" id="m-vrf-gestor" maxlength="60">
+            <label for="eq-equipo-ultima-milla">Equipo de última milla:</label>
+            <input id="eq-equipo-ultima-milla" type="text" value="" readonly>
           </div>
           <div class="form-group">
-            <label for="m-vlan-gestor">VLAN de gestión:</label>
-            <input type="text" id="m-vlan-gestor" maxlength="4">
-          </div>
-          <div class="form-group">
-            <label for="m-desc-gestor">Descripción de la gestión:</label>
-            <input type="text" id="m-desc-gestor" maxlength="60" placeholder="Ej.: GESTION_CORP_ ONT">
+            <label for="eq-equipo-cpe-fw">Equipo CPE / FW:</label>
+            <select id="eq-equipo-cpe-fw" onchange="onEquipoCpeChange()" disabled>
+              <option value="">Cargando equipos desde Firebase...</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="m-red-gestor">Red de gestión:</label>
-            <input type="text" id="m-red-gestor" maxlength="20" placeholder="10.103.104.0/24">
+            <input type="text" id="m-red-gestor" maxlength="20">
           </div>
           <div class="form-group">
             <label for="m-gw-gestor">GW de gestión:</label>
@@ -339,10 +339,6 @@
           <div class="form-group">
             <label for="m-ip-gestor">IP de gestión del demarcador:</label>
             <input type="text" id="m-ip-gestor" maxlength="15">
-          </div>
-          <div class="form-group col-span-2">
-            <label>Observaciones de Planta Externa / Medio (opcional, se agrega bajo la ruta):</label>
-            <textarea id="m-obs-medio" rows="3"></textarea>
           </div>
         </div>
       </div>
@@ -410,7 +406,6 @@
   </div>
 
   <footer class="app-footer">
-    <span id="footer-version">Claro CENAM Service Manager</span>
     <span>Última operación: <button type="button" class="link-btn mono" id="last-operation-id" onclick="copyLastOperationId()" title="Copiar para soporte">—</button></span>
   </footer>
 

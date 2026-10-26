@@ -98,6 +98,11 @@ def isla_doc_id(isla: str) -> str:
     return re.sub(r"[^A-Z0-9]+", "-", normalize_isla(isla)).strip("-") or "SIN-ISLA"
 
 
+def _isla_catalog_key(isla: str | None) -> str:
+    """Compara nombres de isla aunque Firebase los guarde con espacios o guiones."""
+    return re.sub(r"[^A-Z0-9]", "", normalize_isla(isla))
+
+
 def vlan_doc_id(isla: str, vlan: str) -> str:
     return f"{isla_doc_id(isla)}_{vlan}"
 
@@ -946,6 +951,21 @@ class InventoryRepository:
                 item["lado"] = item["lado"].upper() or "CLARO"
                 item["no"] = numero
                 equipos_por_id.setdefault(numero, item)
+
+            # Los equipos asociados a RADIO también pueden estar bajo una
+            # subcolección cuyo nombre es el ID del radio: isla/{radio_id}/{no}.
+            for radio in self.list_radio_isla(isla):
+                radio_id = str(radio.get("id") or radio.get("NMONICO") or "").strip()
+                if not radio_id:
+                    continue
+                for island_key in island_ids:
+                    for snap in self.col(collection_name).document(island_key).collection(radio_id).stream():
+                        raw = snap.to_dict() or {}
+                        lowered = {str(key).lower(): value for key, value in raw.items()}
+                        item = {field: str(lowered.get(field, "") or "").strip() for field in fields}
+                        item["lado"] = item["lado"].upper() or "CLARO"
+                        item["no"] = str(lowered.get("no") or snap.id).strip()
+                        equipos_por_id.setdefault(item["no"], item)
         equipos = list(equipos_por_id.values())
         return sorted(equipos, key=lambda equipo: (not equipo["no"].isdigit(),
                                                     int(equipo["no"]) if equipo["no"].isdigit() else equipo["no"]))
@@ -961,6 +981,65 @@ class InventoryRepository:
                 f"No se encontraron en Firebase los equipos {', '.join(missing)} de la isla {isla}."
             )
         return [catalog[numero] for numero in numeros]
+
+    def list_ultima_milla(self, roles: list[str] | None = None) -> list[dict[str, Any]]:
+        """Lista equipos de ultima_milla/{rol}/{marca}/{modelo}."""
+        allowed = {str(role).strip().lower() for role in (roles or ["cpe", "fw"])}
+        result = []
+        role_labels = {"cpe": "CPE", "fw": "FW", "mc": "MC", "ont": "ONT", "radio": "RADIO"}
+        for role_key, role_label in role_labels.items():
+            if role_key not in allowed:
+                continue
+            role_doc = self.col("ultima_milla").document(role_key)
+            for brand_collection in role_doc.collections():
+                for snap in brand_collection.stream():
+                    raw = snap.to_dict() or {}
+                    lowered = {str(key).lower(): value for key, value in raw.items()}
+                    item = {key: str(lowered.get(key, "") or "").strip()
+                            for key in ("marca", "modelo", "hostname", "ip_admon", "lado")}
+                    item["rol"] = str(lowered.get("rol") or role_label).strip().upper()
+                    item["marca"] = item["marca"] or brand_collection.id.upper()
+                    item["modelo"] = item["modelo"] or str(lowered.get("id") or snap.id).strip()
+                    item["id"] = f"{role_key}/{brand_collection.id}/{snap.id}"
+                    result.append(item)
+        return sorted(result, key=lambda item: (item["rol"], item["marca"], item["modelo"]))
+
+    def get_ultima_milla(self, equipment_id: str) -> dict[str, Any]:
+        parts = [part.strip() for part in str(equipment_id or "").split("/")]
+        if len(parts) != 3 or any(not part for part in parts):
+            raise NotFoundError("El equipo de última milla seleccionado no existe.")
+        role, brand, model = parts
+        snap = self.col("ultima_milla").document(role).collection(brand).document(model).get()
+        if not snap.exists:
+            raise NotFoundError(f"El equipo de última milla {equipment_id} no existe.")
+        raw = snap.to_dict() or {}
+        return {**raw, "id": equipment_id, "rol": str(raw.get("rol") or role).upper(),
+                "marca": raw.get("marca") or brand.upper(), "modelo": raw.get("modelo") or raw.get("id") or model}
+
+    def get_ultima_milla_profile(self, role: str) -> dict[str, Any]:
+        """Lee los valores de gestión del documento ultima_milla/{mc|ont|radio}."""
+        role_key = str(role or "").strip().lower()
+        if role_key not in {"mc", "ont", "radio"}:
+            raise NotFoundError("Tipo de equipo de última milla inválido.")
+        raw = self.col("ultima_milla").document(role_key).get().to_dict() or {}
+        lowered = {str(key).lower(): value for key, value in raw.items()}
+        gestion = lowered.get("gestion") if isinstance(lowered.get("gestion"), dict) else {}
+        lowered.update({str(key).lower(): value for key, value in gestion.items()})
+
+        def first(*keys: str) -> str:
+            return next((str(lowered[key]).strip() for key in keys
+                         if lowered.get(key) is not None and str(lowered[key]).strip()), "")
+
+        return {
+            "rol": first("rol") or role_key.upper(),
+            "marca": first("marca"),
+            "modelo": first("modelo", "id"),
+            "vrf_gestor": first("vrf_gestor", "vrf_gestion", "vrf"),
+            "vlan_gestor": first("vlan_gestor", "vlan_gestion", "vlan"),
+            "red_gestor": first("red_gestor", "red_gestion", "red"),
+            "gw_gestor": first("gw_gestor", "gateway", "gw"),
+            "ip_gestor_raisecom": first("ip_gestor_raisecom", "ip_gestor", "ip_gestion", "ip_admon"),
+        }
 
     def list_gpon_routes(self, isla: str) -> list[str]:
         """Lista las rutas G-PON disponibles bajo Equipos_Transmision/{isla}/g-pon."""
@@ -1098,22 +1177,52 @@ class InventoryRepository:
         return sorted(normalize_isla(i) for i in islas)
 
     def list_vlans(self, isla: str = "") -> list[dict[str, Any]]:
-        query = self._where("vlans", "isla", "==", normalize_isla(isla)) if isla else self.col("vlans")
-        vlans = [snap.to_dict() for snap in query.stream()]
+        target_key = _isla_catalog_key(isla)
+        vlans_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        for root_snap in self.col("vlans").stream():
+            root_data = root_snap.to_dict() or {}
+            # Formato plano: vlans/{isla}_{vlan} con `isla` y `vlan` en campos.
+            if root_data.get("vlan") is not None:
+                item_isla = str(root_data.get("isla") or "")
+                if target_key and _isla_catalog_key(item_isla) != target_key:
+                    continue
+                vlan_number = str(root_data.get("vlan") or "").strip()
+                if vlan_number:
+                    key = (_isla_catalog_key(item_isla), vlan_number)
+                    vlans_by_key[key] = {**root_data, "id": root_snap.id, "isla": item_isla, "vlan": vlan_number}
+                continue
+
+            # Formato anidado: vlans/{isla}/{vlan}/{documento}.
+            item_isla = str(root_data.get("isla") or root_snap.id)
+            if target_key and _isla_catalog_key(item_isla) != target_key:
+                continue
+            for vlan_collection in root_snap.reference.collections():
+                vlan_number = str(vlan_collection.id).strip()
+                if not vlan_number.isdigit():
+                    continue
+                for vlan_snap in vlan_collection.stream():
+                    nested_data = vlan_snap.to_dict() or {}
+                    nested_isla = str(nested_data.get("isla") or item_isla)
+                    if target_key and _isla_catalog_key(nested_isla) != target_key:
+                        continue
+                    nested_vlan = str(nested_data.get("vlan") or vlan_number).strip()
+                    key = (_isla_catalog_key(nested_isla), nested_vlan)
+                    current = vlans_by_key.get(key, {})
+                    vlans_by_key[key] = {
+                        **current, **{field: value for field, value in nested_data.items() if value not in (None, "")},
+                        "id": vlan_snap.id, "isla": nested_isla, "vlan": nested_vlan,
+                    }
+        vlans = list(vlans_by_key.values())
         return sorted(vlans, key=lambda v: (v.get("isla", ""), int(v["vlan"]) if str(v.get("vlan", "")).isdigit() else 0))
 
     def get_vlan_config(self, vlan: str, isla: str = "") -> str:
         """Busca la configuración por número de VLAN, priorizando la isla seleccionada."""
         if not str(vlan).isdigit():
             return ""
-        configs = []
-        for snap in self.col("vlans").stream():
-            item = snap.to_dict()
-            if str(item.get("vlan", "")) == str(vlan):
-                configs.append(item)
-        target_isla = normalize_isla(isla)
+        configs = self.list_vlans()
+        target_isla = _isla_catalog_key(isla)
         for item in configs:
-            if normalize_isla(item.get("isla")) == target_isla and item.get("config"):
+            if str(item.get("vlan", "")) == str(vlan) and _isla_catalog_key(item.get("isla")) == target_isla and item.get("config"):
                 return str(item["config"])
         return next((str(item["config"]) for item in configs if item.get("config")), "")
 
@@ -1205,6 +1314,52 @@ class InventoryRepository:
                 continue
             result.append(data)
         return sorted(result, key=lambda d: str(d.get("nombre") or d["id"]))
+
+    def list_radio_isla(self, isla: str) -> list[dict[str, Any]]:
+        """Equipos de la colección radio, asociados por isla o por campo sitio."""
+        wanted = normalize_isla(isla)
+        result = []
+        for snap in self.col("radio").stream():
+            data = snap.to_dict() or {}
+            data["id"] = snap.id
+            stored = normalize_isla(str(data.get("isla") or data.get("isla_id") or data.get("sitio") or ""))
+            if stored == wanted and data.get("activo", True):
+                result.append(data)
+        return sorted(result, key=lambda d: str(d.get("nombre") or d.get("NMONICO") or d["id"]))
+
+    def get_radio(self, radio_id: str) -> dict[str, Any]:
+        radio_id = str(radio_id or "").strip()
+        snap = self.col("radio").document(radio_id).get() if radio_id and "/" not in radio_id else None
+        if snap is None or not snap.exists:
+            raise NotFoundError(f"El equipo Radio {radio_id} no existe.")
+        return {**(snap.to_dict() or {}), "id": snap.id}
+
+    def list_equipos_ruta_radio(self, isla: str, radio_id: str) -> list[dict[str, Any]]:
+        """Lee equipos_ruta desde Equipos_Transmision/{isla}/{radio_id}/{numero}."""
+        equipo = self.get_radio(radio_id)
+        numeros = _text_list(equipo.get("equipos_ruta"))
+        if not numeros:
+            return []
+        fields = ("rol", "sitio", "marca", "modelo", "hostname", "ip_admon", "int_in", "int_out", "lado")
+        catalog: dict[str, dict[str, Any]] = {}
+        island_keys = {isla, normalize_isla(isla), isla_doc_id(isla)}
+        for collection_name in ("Equipos_Transmision", "Equipos_Transmission"):
+            for island_key in island_keys:
+                if not island_key:
+                    continue
+                # En Firestore: Equipos_Transmision/{isla}/{ID_RADIO}/{número_equipo}.
+                snapshots = self.col(collection_name).document(island_key).collection(radio_id).stream()
+                for snap in snapshots:
+                    raw = snap.to_dict() or {}
+                    lowered = {str(key).lower(): value for key, value in raw.items()}
+                    item = {field: str(lowered.get(field, "") or "").strip() for field in fields}
+                    item["lado"] = item["lado"].upper() or "CLARO"
+                    item["no"] = str(lowered.get("no") or snap.id).strip()
+                    catalog[item["no"]] = item
+        missing = [numero for numero in numeros if numero not in catalog]
+        if missing:
+            raise NotFoundError(f"No se encontraron en Firebase los equipos {', '.join(missing)} del Radio {radio_id}.")
+        return [catalog[numero] for numero in numeros]
 
     def get_gpon(self, gpon_id: str) -> dict[str, Any]:
         data = self._gpon_data(gpon_id)

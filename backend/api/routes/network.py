@@ -71,6 +71,10 @@ def list_gpon(state: StateDep, isla: str = Query(min_length=1, max_length=60, pa
     """Equipos G-PON registrados en la isla, con estructura equivalente a chasis."""
     return {"isla": isla.strip().upper(), "gpon": serialize(state.repo.list_gpon_isla(isla.strip()))}
 
+@router.get("/api/radio")
+def list_radio(state: StateDep, isla: str = Query(min_length=1, max_length=60, pattern=r"\S")) -> dict[str, Any]:
+    return {"isla": isla.strip().upper(), "radio": serialize(state.repo.list_radio_isla(isla.strip()))}
+
 @router.put("/api/chasis/{chasis_id}")
 def upsert_chasis(chasis_id: str, req: ChasisRequest, state: StateDep, operator: OperatorDep) -> dict[str, Any]:
     if not re.fullmatch(CHASIS_ID_PATTERN, chasis_id):
@@ -110,12 +114,18 @@ def list_equipos(
     state: StateDep,
     chasis_id: str = Query(default="", max_length=64),
     gpon_id: str = Query(default="", max_length=64),
+    radio_id: str = Query(default="", max_length=64),
+    isla: str = Query(default="", max_length=60),
 ) -> dict[str, Any]:
     """Consulta los equipos_ruta de un chasis o de un equipo G-PON."""
     chasis_id = tracing.clean_text(chasis_id, 64)
     gpon_id = tracing.clean_text(gpon_id, 64)
-    if bool(chasis_id) == bool(gpon_id):
-        raise InventoryError("Indique un solo identificador: chasis_id o gpon_id.")
+    radio_id = tracing.clean_text(radio_id, 64)
+    isla = tracing.clean_text(isla, 60)
+    if sum(bool(value) for value in (chasis_id, gpon_id, radio_id)) != 1:
+        raise InventoryError("Indique un solo identificador: chasis_id, gpon_id o radio_id.")
+    if radio_id:
+        return {"radio_id": radio_id, "isla": isla.strip().upper(), "equipos": serialize(state.repo.list_equipos_ruta_radio(isla, radio_id))}
     if gpon_id:
         gpon = state.repo.get_gpon(gpon_id)
         ruta = gpon.get("equipos_ruta") or []
@@ -137,6 +147,26 @@ def list_equipos(
         "equipos_ruta": [str(numero).strip() for numero in ruta if str(numero).strip()],
         "equipos": serialize(state.repo.list_equipos_ruta_chasis(chasis_id)),
     }
+
+@router.get("/api/equipos-catalogo")
+def list_equipos_catalogo(state: StateDep, isla: str = Query(min_length=1, max_length=60, pattern=r"\S")) -> dict[str, Any]:
+    isla = tracing.clean_text(isla, 60)
+    return {"isla": isla, "equipos": serialize(state.repo.list_Equipos_Transmision(isla))}
+
+@router.get("/api/ultima-milla")
+def list_ultima_milla(state: StateDep, roles: str = Query(default="cpe,fw", max_length=40)) -> dict[str, Any]:
+    allowed = {"cpe", "fw", "mc", "ont", "radio"}
+    requested = [role.strip().lower() for role in roles.split(",") if role.strip()]
+    if not requested or any(role not in allowed for role in requested):
+        raise InventoryError("Roles inválidos para consultar última milla.")
+    return {"equipos": serialize(state.repo.list_ultima_milla(requested))}
+
+@router.get("/api/ultima-milla-profile/{role}")
+def get_ultima_milla_profile(role: str, state: StateDep) -> dict[str, Any]:
+    role = tracing.clean_text(role, 10).lower()
+    if role not in {"mc", "ont", "radio"}:
+        raise InventoryError("Seleccione un tipo de última milla válido.")
+    return {"profile": serialize(state.repo.get_ultima_milla_profile(role))}
 
 @router.get("/api/gpon-routes")
 def list_gpon_routes(state: StateDep, isla: str = Query(min_length=1, max_length=60)) -> dict[str, Any]:

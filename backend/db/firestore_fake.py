@@ -59,6 +59,20 @@ class FakeDocumentReference:
             raise ValueError("Nombre de subcolección inválido.")
         return FakeCollectionReference(self._client, f"{self.path}/{name}")
 
+    def collections(self) -> Iterator["FakeCollectionReference"]:
+        """Enumerate immediate child collections like Firestore DocumentReference."""
+        prefix = f"{self.path}/"
+        names: set[str] = set()
+        with self._client._lock:
+            for collection_path in self._client._data:
+                if not collection_path.startswith(prefix):
+                    continue
+                child = collection_path[len(prefix):].split("/", 1)[0]
+                if child:
+                    names.add(child)
+        for name in sorted(names):
+            yield self.collection(name)
+
 
 class FakeQuery:
     def __init__(self, client: "FakeFirestoreClient", collection: str):

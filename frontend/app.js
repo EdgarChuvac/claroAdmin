@@ -8,8 +8,10 @@ const state = {
   islasRequestId: 0,
   chasisRequestId: 0,
   gponRequestId: 0,
+  radioRequestId: 0,
   chasis: [],
   gpon: [],
+  radio: [],
   equipmentRoute: [],
   operator: "",
   clientSession: "",
@@ -28,6 +30,9 @@ const state = {
   vlanDescriptions: {},
   currentVlan: "",      // "" = sin elegir, "*" = todas
   inventoryRequestId: 0,
+  cpeCatalogRequestId: 0,
+  cpeCatalog: [],
+  ultimaMillaRequestId: 0,
   blocksRequestId: 0,
   formatRequestId: 0,
 };
@@ -76,30 +81,90 @@ function medioUsaChasis() {
   return Boolean(medio && medio.usa_chasis);
 }
 
-// Gestión del demarcador: la del medio (p. ej. G-PON) o la de network_defaults.
-function applyMedioGestion() {
-  if (!state.config) return;
-  const d = state.config.network_defaults;
-  const medio = state.config.medios[$("s-medio").value] || {};
-  $("m-vrf-gestor").value = medio.vrf_gestor || d.vrf_gestor || "";
-  $("m-vlan-gestor").value = medio.vlan_gestor || d.vlan_gestor || "";
-  $("m-desc-gestor").value = medio.desc_gestor || "";
+async function loadUltimaMillaProfile() {
+  const requestId = ++state.ultimaMillaRequestId;
+  const role = { FIBRA: "mc", RADIO: "radio", GPON: "ont" }[$("s-medio").value];
+  updateAutomaticUltimaMilla();
+  for (const id of ["m-red-gestor", "m-gw-gestor", "m-ip-gestor"]) $(id).value = "";
+  if (!role) return;
+  try {
+    const result = await api(`/api/ultima-milla-profile/${role}`);
+    if (requestId !== state.ultimaMillaRequestId || role !== ({ FIBRA: "mc", RADIO: "radio", GPON: "ont" }[$("s-medio").value])) return;
+    const profile = result.profile || {};
+    const equipment = [profile.marca, profile.modelo].filter(Boolean).join(" ");
+    const equipmentRole = String(profile.rol || role).toUpperCase();
+    $("eq-equipo-ultima-milla").value = equipment
+      ? `${equipmentRole} (${equipment})`
+      : `${equipmentRole} (sin equipo configurado)`;
+    $("m-red-gestor").value = profile.red_gestor || "";
+    $("m-gw-gestor").value = profile.gw_gestor || "";
+    $("m-ip-gestor").value = profile.ip_gestor_raisecom || "";
+  } catch (err) {
+    if (requestId !== state.ultimaMillaRequestId) return;
+    showError(err, `No se pudo cargar la configuración de última milla (${role.toUpperCase()})`);
+  }
 }
 
 async function onMedioChange() {
+  // Invalida respuestas pendientes del medio anterior para no mezclar sus equipos.
+  state.chasisRequestId++;
+  state.gponRequestId++;
+  state.radioRequestId++;
   $("grp-chasis").hidden = !medioUsaChasis();
   const isGpon = $("s-medio").value === "GPON";
+  const isRadio = $("s-medio").value === "RADIO";
   $("grp-gpon").hidden = !isGpon;
+  $("grp-radio").hidden = !isRadio;
   $("s-gpon").required = isGpon;
-  applyMedioGestion();
+  $("s-radio").required = isRadio;
+  await loadUltimaMillaProfile();
   markFormatStale();
+  // Siempre vuelve a consultar la lista correspondiente a la isla y luego carga
+  // la ruta del equipo que quedó seleccionado en ese medio.
   await loadTransportOptions();
   await loadEquiposRutaChasis();
+  await loadCpeEquipmentOptions(selectedIsla(), { keepSelection: true });
 }
 
 async function loadTransportOptions() {
   if ($("s-medio").value === "GPON") await loadGponForIsla();
+  else if ($("s-medio").value === "RADIO") await loadRadioForIsla();
   else await loadChasisForIsla();
+}
+
+async function loadRadioForIsla() {
+  const requestId = ++state.radioRequestId;
+  const select = $("s-radio"), isla = selectedIsla(), previous = select.value;
+  state.radio = [];
+  if (!isla) {
+    select.replaceChildren(new Option("Seleccione una isla primero", "")); select.disabled = true;
+    renderEquipmentRows([], "Seleccione la isla para cargar sus equipos Radio desde Firebase."); return;
+  }
+  select.replaceChildren(new Option("Cargando equipos Radio...", "")); select.disabled = true;
+  try {
+    const result = await api("/api/radio?" + new URLSearchParams({ isla }));
+    if (requestId !== state.radioRequestId || $("s-medio").value !== "RADIO" || selectedIsla() !== isla) return;
+    state.radio = result.radio || [];
+    select.replaceChildren(new Option(state.radio.length ? "Seleccione el equipo Radio" : "No hay equipos Radio para " + isla, ""),
+      ...state.radio.map(item => { const id = String(item.id || item.NMONICO || "").trim(); return new Option(item.nombre || item.NMONICO || id, id); }));
+    if (state.radio.some(item => String(item.id || item.NMONICO || "").trim() === previous)) select.value = previous;
+    else if (state.radio.length === 1) select.value = String(state.radio[0].id || state.radio[0].NMONICO || "").trim();
+    select.disabled = !state.radio.length;
+    if (!select.value) renderEquipmentRows([], "Seleccione el equipo Radio para cargar su ruta de transmisión.");
+    updateGenerationAvailability();
+  } catch (err) { if (requestId !== state.radioRequestId) return; select.replaceChildren(new Option("No se pudieron cargar equipos Radio", "")); renderEquipmentRows([], "No se pudieron cargar los equipos Radio desde Firebase."); showError(err, "No se pudieron cargar equipos Radio"); }
+}
+
+async function onRadioChange() { markFormatStale(); updateGenerationAvailability(); await loadEquiposRutaRadio(); }
+async function loadEquiposRutaRadio() {
+  const requestId = ++state.radioRequestId, radioId = $("s-radio").value.trim();
+  if (!radioId) { renderEquipmentRows([], "Seleccione el equipo Radio para cargar su ruta de transmisión."); return; }
+  try {
+    const result = await api("/api/equipos?" + new URLSearchParams({ radio_id: radioId, isla: selectedIsla() }));
+    if (requestId !== state.radioRequestId || $("s-medio").value !== "RADIO" || $("s-radio").value.trim() !== radioId) return;
+    const equipos = result.equipos || []; renderEquipmentRows(equipos, `El equipo Radio ${radioId} no tiene equipos configurados en equipos_ruta.`);
+    if (equipos.length) $("equipment-source").textContent = `Firebase: equipo Radio ${radioId}; ${equipos.length} equipo(s). Orden: ${equipos.map(eq => eq.no).join(" → ")}.`;
+  } catch (err) { if (requestId !== state.radioRequestId) return; renderEquipmentRows([], "No se pudo cargar la ruta del equipo Radio."); showError(err, "No se pudo cargar la ruta del equipo Radio"); }
 }
 
 function selectedChasis() {
@@ -176,6 +241,10 @@ function selectFirstAvailableChasisPort() {
 async function loadEquiposRutaChasis() {
   if ($("s-medio").value === "GPON") {
     await loadEquiposRutaGpon();
+    return;
+  }
+  if ($("s-medio").value === "RADIO") {
+    await loadEquiposRutaRadio();
     return;
   }
   const chasisId = $("s-chasis").value.trim();
@@ -584,7 +653,6 @@ async function loadConfig() {
   }
   const cfg = state.config;
 
-  $("footer-version").textContent = `Claro CENAM Service Manager v${cfg.version} · datos: ${cfg.backend === "memory" ? "memoria (demo)" : "Firebase"}`;
   $("import-max-mb").textContent = cfg.max_upload_mb;
 
   const select = $("p-titulo");
@@ -594,14 +662,11 @@ async function loadConfig() {
     ...Object.entries(cfg.regiones).map(([name, r]) => new Option(r.label, name)));
   $("s-medio").replaceChildren(...Object.entries(cfg.medios).map(([name, m]) => new Option(m.label, name)));
   $("s-medio").value = "FIBRA" in cfg.medios ? "FIBRA" : $("s-medio").options[0].value;
+  updateAutomaticUltimaMilla();
   $("grp-chasis").hidden = !medioUsaChasis();
 
   const d = cfg.network_defaults;
-  $("m-raisecom").value = d.equipo_raisecom;
-  $("m-red-gestor").value = d.red_gestor || "";
-  $("m-gw-gestor").value = d.gw_gestor || "";
-  $("m-ip-gestor").value = d.ip_gestor_raisecom || "";
-  applyMedioGestion();
+  void loadUltimaMillaProfile();
   $("eq-loopback").placeholder = `Asignada por el sistema (${d.loopback_pool_start} - ${d.loopback_pool_end} /32)`;
 
   applyServiceTemplate(select.value);
@@ -715,6 +780,7 @@ async function onIslaChange({ keepSelection = false } = {}) {
   $("equipment-tbody").replaceChildren();
   $("equipment-source").textContent = isla ? "Cargando equipo y ruta de transmisión desde Firebase..." : "Seleccione una isla y un equipo de transmisión.";
   await loadTransportOptions();
+  await loadCpeEquipmentOptions(isla, { keepSelection });
   const previousVlan = keepSelection ? state.currentVlan : "";
   state.islaSegments = [];
   state.vlanCatalog = [];
@@ -741,6 +807,46 @@ async function onIslaChange({ keepSelection = false } = {}) {
   }
   fillVlanSelect(previousVlan);
   await onVlanChange({ keepSelection });
+}
+
+async function loadCpeEquipmentOptions(isla, { keepSelection = false } = {}) {
+  const requestId = ++state.cpeCatalogRequestId;
+  const select = $("eq-equipo-cpe-fw"), previous = keepSelection ? select.value : "";
+  state.cpeCatalog = [];
+  select.replaceChildren(new Option("Cargando equipos CPE / FW desde Firebase...", ""));
+  select.disabled = true;
+  select.required = false;
+  try {
+    const result = await api("/api/ultima-milla?roles=cpe,fw");
+    if (requestId !== state.cpeCatalogRequestId) return;
+    state.cpeCatalog = result.equipos || [];
+    const equipos = state.cpeCatalog.filter(eq => ["CPE", "FW"].includes(String(eq.rol || "").trim().toUpperCase()));
+    select.replaceChildren(new Option(equipos.length ? "Seleccione un equipo CPE o FW" : "No hay equipos CPE / FW en Firebase", ""),
+      ...equipos.map(eq => {
+        const id = String(eq.id || "").trim();
+        const nombre = [eq.rol, eq.marca, eq.modelo].map(v => String(v || "").trim()).filter(Boolean).join(" ");
+        const label = eq.ip_admon ? `${nombre} (${eq.ip_admon})` : nombre;
+        return new Option(label || id, id);
+      }));
+    if (equipos.some(eq => String(eq.id || "").trim() === previous)) select.value = previous;
+    select.disabled = !equipos.length;
+    select.required = Boolean(equipos.length);
+    updateGenerationAvailability();
+  } catch (err) {
+    if (requestId !== state.cpeCatalogRequestId) return;
+    select.replaceChildren(new Option("No se pudieron cargar equipos desde Firebase", ""));
+    showError(err, "No se pudo cargar el catálogo de última milla");
+  }
+}
+
+function onEquipoCpeChange() {
+  markFormatStale();
+  updateGenerationAvailability();
+}
+
+function updateAutomaticUltimaMilla() {
+  const role = { FIBRA: "MC", RADIO: "RADIO", GPON: "ONT" }[$("s-medio").value] || "";
+  $("eq-equipo-ultima-milla").value = role;
 }
 
 function fillVlanSelect(preferred = "") {
@@ -816,7 +922,9 @@ function vlanForData() {
 // RD, VRF y descripciones: lo guardado para la VLAN; si no hay nada, la plantilla del servicio.
 function fillVlanData() {
   const vlan = vlanForData();
-  const saved = state.vlanCatalog.find(v => v.vlan === vlan && (v.isla || "").toUpperCase() === selectedIsla().toUpperCase())
+  const islaKey = value => String(value || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const selectedIslaKey = islaKey(selectedIsla());
+  const saved = state.vlanCatalog.find(v => v.vlan === vlan && islaKey(v.isla) === selectedIslaKey)
     || state.vlanCatalog.find(v => v.vlan === vlan && v.config);
   const tpl = currentTemplate();
   const values = saved
@@ -1405,6 +1513,7 @@ function collectFormData() {
     chasis_slot: $("s-medio").value === "GPON" ? "" : $("s-chasis-slot").value,
     chasis_puerto: $("s-medio").value === "GPON" ? "" : $("s-chasis-puerto").value,
     gpon_id: $("s-medio").value === "GPON" ? $("s-gpon").value.trim() : "",
+    radio_id: $("s-medio").value === "RADIO" ? $("s-radio").value.trim() : "",
     gpon_route_id: "",
     observaciones: $("s-observaciones").value,
     isla: selectedIsla(),
@@ -1420,14 +1529,12 @@ function collectFormData() {
     ip_publica: tpl && tpl.ip_publica ? $("eq-ip-publica").value.trim() : "",
     loopback_auto: $("eq-loopback-auto").checked,
     equipos_claro: getEquipmentRowsData(),
-    equipo_raisecom: $("m-raisecom").value,
-    vrf_gestor: $("m-vrf-gestor").value.trim(),
-    vlan_gestor: $("m-vlan-gestor").value.trim(),
-    desc_gestor: $("m-desc-gestor").value.trim(),
+    equipo_raisecom: "",
+    equipo_cpe_id: $("eq-equipo-cpe-fw").value,
     red_gestor: $("m-red-gestor").value.trim(),
     gw_gestor: $("m-gw-gestor").value.trim(),
     ip_gestor_raisecom: $("m-ip-gestor").value.trim(),
-    obs_medio: $("m-obs-medio").value,
+    obs_medio: "",
   };
 }
 

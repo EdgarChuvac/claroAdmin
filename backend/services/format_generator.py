@@ -83,6 +83,8 @@ def build_route_string(
     cpe_model: str = "CISCO C921",
     medio: str = "FO",
     chasis: str = "",
+    loopback_ip: str = "",
+    demarcador_ip: str = "",
 ) -> str:
     """Ruta: ``Rol Marca Modelo Hostname (IP) Interfaz --> … ==> MEDIO ==> (CLIENTE) DEMARCADOR --> CPE``.
 
@@ -115,8 +117,21 @@ def build_route_string(
             parts.append(name)
     for eq in equipos_cliente:
         name = " ".join(p for p in (_text(eq.get(k)) for k in ("rol", "sitio", "marca", "modelo", "hostname")) if p)
+        equipment_role = _text(eq.get("rol")).upper()
+        expected_role = _text(raisecom_model).split(" ", 1)[0].upper()
+        # Algunas rutas guardan la última milla solo con el rol (por ejemplo,
+        # "MC"). En ese caso usamos el perfil cargado desde ultima_milla para
+        # imprimir también la marca y el modelo.
+        if equipment_role and equipment_role == expected_role:
+            name = _text(raisecom_model)
+            if demarcador_ip:
+                name = f"{name} ({demarcador_ip})"
+        elif name.strip().upper() == expected_role:
+            name = _text(raisecom_model)
+            if demarcador_ip:
+                name = f"{name} ({demarcador_ip})"
         ip = _text(eq.get("ip_admon"))
-        if ip:
+        if ip and equipment_role != expected_role:
             name = f"{name} ({ip})".strip()
         int_out = _text(eq.get("int_out"))
         if int_out:
@@ -124,10 +139,14 @@ def build_route_string(
         if name:
             client_parts.append(name)
 
-    cliente_chain = f"(CLIENTE) {raisecom_model}"
+    demarcador = f"{raisecom_model} ({demarcador_ip})" if demarcador_ip else raisecom_model
+    cliente_chain = f"(CLIENTE) {demarcador}"
     if cpe_model:
-        cliente_chain += f" --> {cpe_model}"
+        equipo_final = f"{cpe_model} ({loopback_ip})" if loopback_ip else cpe_model
+        cliente_chain += f" --> {equipo_final}"
     if client_parts:
+        if loopback_ip:
+            client_parts[-1] = f"{client_parts[-1]} ({loopback_ip})"
         cliente_chain = " --> ".join(client_parts)
     claro_chain = " --> ".join(parts)
     if not claro_chain:
@@ -215,21 +234,27 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
     # Ruta
     medio_key = _text(data.get("medio"), "FIBRA").upper()
     medio = catalog.medios.get(medio_key)
-    equipo_cpe = _text(data.get("equipo_cpe")) or defaults.equipo_cpe
+    equipo_cpe = _text(data.get("equipo_cpe")) or ("" if data.get("equipo_cpe_id") else defaults.equipo_cpe)
     demarcador = _text(data.get("equipo_raisecom")) or defaults.equipo_raisecom
     chasis_position = chasis_hop(data.get("chasis_nombre"), data.get("chasis_id_fisico"),
                                  data.get("chasis_slot"), data.get("chasis_puerto"))
     if medio_key == "GPON":
         chasis_position = "<Slot X|Puerto X|Onu ID X>"
+    equipos_ruta = data.get("equipos_claro") or []
+    if medio_key == "RADIO":
+        # El lado CLIENTE de Equipos_Transmision puede traer un switch Claro;
+        # para Radio la última milla canónica viene de ultima_milla/radio.
+        equipos_ruta = [eq for eq in equipos_ruta if _text(eq.get("lado")).upper() != "CLIENTE"]
     ruta = _text(data.get("ruta_manual")) or build_route_string(
-        data.get("equipos_claro") or [], demarcador, equipo_cpe, catalog.medio_ruta(medio_key),
-        chasis_position,
+        equipos_ruta, demarcador, equipo_cpe, catalog.medio_ruta(medio_key),
+        chasis_position, _text(data.get("loopback")).split("/")[0],
+        _text(data.get("ip_gestor_raisecom")).split("/")[0],
     )
     obs_medio = _text(data.get("obs_medio"))
 
     # Recursos
-    gestion_label = (medio.demarcador if medio else "") or "RAISECOM"
-    gestion = [
+    gestion_label = _text(data.get("gestion_label")) or (medio.demarcador if medio else "") or "RAISECOM"
+    gestion_values = [
         " ".join(p for p in (
             f"VRF {_text(data.get('vrf_gestor'))}" if _text(data.get("vrf_gestor")) else "",
             f"VLAN {_text(data.get('vlan_gestor'))}" if _text(data.get("vlan_gestor")) else "",
@@ -239,6 +264,7 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
         _ip_line(_text(data.get("gw_gestor")), "GW"),
         _ip_line(_text(data.get("ip_gestor_raisecom")), gestion_label),
     ]
+    gestion = ["GESTION DE ULTIMA MILLA", *gestion_values] if any(gestion_values) else []
     red_wan = _text(data.get("red_wan"))
     gw_wan = _text(data.get("gw_wan"))
     ip_wan = _text(data.get("ip_wan"))
@@ -318,7 +344,7 @@ def generate_format_text(data: Dict[str, Any], catalog: Optional[Catalog] = None
             f"ID DEL SERVICIO:  {id_servicio}",
             f"LOOPBACK {loopback_id} :  {loopback_ip}",
             f"NOMBRE DEL CLIENTE: {cliente}",
-            f"EQUIPO: {equipo_cpe}",
+            f"EQUIPO: {equipo_cpe or demarcador}",
             f"PRE-SHARED KEY: {defaults.psk_monitoreo}",
         ])
 
