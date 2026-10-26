@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
-    application = FastAPI(title="Claro CENAM - Service Manager", version=APP_VERSION, lifespan=lifespan)
+    application = FastAPI(title="CLARO", version=APP_VERSION, lifespan=lifespan)
     application.middleware("http")(operation_tracing)
     register_exception_handlers(application)
     application.include_router(api_router)
