@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1450" viewBox="0 0 1000 1450" role="img" aria-labelledby="title desc">
+  <title id="title">Diagrama sencillo de clases y componentes del proyecto</title>
+  <desc id="desc">El usuario usa la pantalla web. FastAPI recibe los datos y los envía a las rutas. AppState contiene el catálogo y el repositorio. El repositorio usa FirestoreHandle para guardar datos en Firebase Firestore.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333333"/>
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #333333; stroke-width: 2.4; }
+      .line { fill: none; stroke: #333333; stroke-width: 2.5; marker-end: url(#arrow); }
+      .title { font: 700 29px Arial, sans-serif; fill: #111111; }
+      .head { font: 700 22px Arial, sans-serif; fill: #111111; }
+      .body { font: 18px Arial, sans-serif; fill: #222222; }
+      .note { font: 16px Arial, sans-serif; fill: #333333; }
+    </style>
+  </defs>
+  <rect width="1000" height="1450" fill="#ffffff"/>
+  <text x="500" y="48" text-anchor="middle" class="title">Diagrama sencillo del proyecto</text>
+
+  <rect class="box" x="290" y="82" width="420" height="88" rx="12"/>
+  <text x="500" y="117" text-anchor="middle" class="head">Usuario</text>
+  <text x="500" y="145" text-anchor="middle" class="body">Ingresa la información del servicio</text>
+  <path class="line" d="M500 170 V207"/>
+
+  <rect class="box" x="250" y="211" width="500" height="100" rx="12"/>
+  <text x="500" y="249" text-anchor="middle" class="head">Pantalla web</text>
+  <text x="500" y="279" text-anchor="middle" class="body">Muestra formularios y envía los datos</text>
+  <path class="line" d="M500 311 V348"/>
+
+  <rect class="box" x="250" y="352" width="500" height="100" rx="12"/>
+  <text x="500" y="390" text-anchor="middle" class="head">FastAPI</text>
+  <text x="500" y="420" text-anchor="middle" class="body">Recibe y distribuye las solicitudes</text>
+  <path class="line" d="M500 452 V489"/>
+
+  <rect class="box" x="250" y="493" width="500" height="112" rx="12"/>
+  <text x="500" y="531" text-anchor="middle" class="head">Rutas de la API</text>
+  <text x="500" y="561" text-anchor="middle" class="body">Inventario · Reservas · Topología</text>
+  <text x="500" y="586" text-anchor="middle" class="body">Altas · Consultas</text>
+  <path class="line" d="M500 605 V642"/>
+
+  <rect class="box" x="250" y="646" width="500" height="112" rx="12"/>
+  <text x="500" y="684" text-anchor="middle" class="head">AppState</text>
+  <text x="500" y="714" text-anchor="middle" class="body">Reúne configuración, catálogo y repositorio</text>
+  <text x="500" y="739" text-anchor="middle" class="note">Es el punto de acceso a los recursos de la aplicación</text>
+
+  <path class="line" d="M410 758 C370 795 300 795 300 830"/>
+  <path class="line" d="M590 758 C630 795 700 795 700 830"/>
+
+  <rect class="box" x="70" y="834" width="390" height="118" rx="12"/>
+  <text x="265" y="872" text-anchor="middle" class="head">Catalog</text>
+  <text x="265" y="902" text-anchor="middle" class="body">Plantillas, regiones y medios</text>
+  <text x="265" y="928" text-anchor="middle" class="note">Ayuda a completar los formatos</text>
+
+  <rect class="box" x="540" y="834" width="390" height="118" rx="12"/>
+  <text x="735" y="872" text-anchor="middle" class="head">InventoryRepository</text>
+  <text x="735" y="902" text-anchor="middle" class="body">Lee y guarda IPs, reservas y altas</text>
+  <text x="735" y="928" text-anchor="middle" class="note">Organiza el acceso a los datos</text>
+
+  <path class="line" d="M735 952 V1000"/>
+  <rect class="box" x="540" y="1004" width="390" height="108" rx="12"/>
+  <text x="735" y="1042" text-anchor="middle" class="head">FirestoreHandle</text>
+  <text x="735" y="1072" text-anchor="middle" class="body">Prepara la conexión y las consultas</text>
+  <path class="line" d="M735 1112 V1160"/>
+
+  <rect class="box" x="540" y="1164" width="390" height="108" rx="12"/>
+  <text x="735" y="1202" text-anchor="middle" class="head">Firebase Firestore</text>
+  <text x="735" y="1232" text-anchor="middle" class="body">Guarda los datos del proyecto</text>
+
+  <rect class="box" x="90" y="1035" width="390" height="142" rx="12"/>
+  <text x="285" y="1073" text-anchor="middle" class="head">Generador de formato</text>
+  <text x="285" y="1103" text-anchor="middle" class="body">Combina los datos del servicio</text>
+  <text x="285" y="1132" text-anchor="middle" class="body">con las plantillas del catálogo</text>
+  <path class="line" d="M265 952 V1031"/>
+
+  <text x="500" y="1322" text-anchor="middle" class="note">Las cajas muestran clases o módulos principales; las flechas indican cómo se relacionan.</text>
+  <text x="500" y="1350" text-anchor="middle" class="note">La pantalla, FastAPI y las rutas son componentes; no todos son clases de Python.</text>
+</svg>

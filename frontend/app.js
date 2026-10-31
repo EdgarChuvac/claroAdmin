@@ -1506,6 +1506,7 @@ function collectFormData() {
     fecha,
     factibilidad_bloque: $("p-factibilidad-bloque").value,
     sin_factibilidad: state.sinFactibilidad,
+
     region: $("s-region").value,
     medio: $("s-medio").value,
     // Cada medio envía su equipo propio; G-PON no requiere slot ni puerto.
@@ -1517,6 +1518,8 @@ function collectFormData() {
     gpon_route_id: "",
     observaciones: $("s-observaciones").value,
     isla: selectedIsla(),
+
+    
     vlan_num: vlanForData(),
     red_wan: $("eq-red-wan").value,
     gw_wan: $("eq-gw-wan").value,

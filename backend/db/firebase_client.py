@@ -1,16 +1,11 @@
-"""Creación del cliente de Firestore a partir de las variables de entorno."""
-
 from __future__ import annotations
-
 import logging
 import os
 from dataclasses import dataclass
 from typing import Any, Callable
-
 from ..core.settings import Settings
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class FirestoreHandle:
@@ -20,13 +15,11 @@ class FirestoreHandle:
     field_filter: Callable[[str, str, Any], Any]
     backend: str
 
-
 class _SimpleFilter:
     def __init__(self, field_path: str, op_string: str, value: Any):
         self.field_path = field_path
         self.op_string = op_string
         self.value = value
-
 
 def create_memory_handle() -> FirestoreHandle:
     from . import firestore_fake
@@ -38,7 +31,6 @@ def create_memory_handle() -> FirestoreHandle:
         field_filter=_SimpleFilter,
         backend="memory",
     )
-
 
 def create_firestore_handle(settings: Settings) -> FirestoreHandle:
     """Inicializa Firebase Admin / Firestore.

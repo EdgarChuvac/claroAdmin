@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1420" viewBox="0 0 900 1420" role="img" aria-labelledby="title desc">
+  <title id="title">Componentes de la aplicación y conexión con Firebase</title>
+  <desc id="desc">Diagrama vertical desde el usuario y la pantalla web hasta FastAPI, el repositorio y Cloud Firestore. En modo demostración se puede utilizar memoria temporal.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#333333"/>
+    </marker>
+    <marker id="arrow-dashed" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,5 L0,10 z" fill="#666666"/>
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #333333; stroke-width: 2; }
+      .subbox { fill: #ffffff; stroke: #555555; stroke-width: 1.8; }
+      .line { fill: none; stroke: #333333; stroke-width: 2.2; marker-end: url(#arrow); }
+      .dashed { fill: none; stroke: #666666; stroke-width: 2; stroke-dasharray: 8 6; marker-end: url(#arrow-dashed); }
+      .title { font: 700 28px Arial, sans-serif; fill: #111111; }
+      .heading { font: 700 21px Arial, sans-serif; fill: #111111; }
+      .body { font: 17px Arial, sans-serif; fill: #222222; }
+      .small { font: 15px Arial, sans-serif; fill: #333333; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="1420" fill="#ffffff"/>
+  <text id="title" x="450" y="48" text-anchor="middle" class="title">Componentes de la aplicación y conexión con Firebase</text>
+
+  <rect class="box" x="240" y="78" width="420" height="78" rx="12"/>
+  <text x="450" y="110" text-anchor="middle" class="heading">Usuario</text>
+  <text x="450" y="136" text-anchor="middle" class="body">Ingresa los datos del servicio</text>
+
+  <path class="line" d="M450 156 V190"/>
+  <rect class="box" x="200" y="194" width="500" height="92" rx="12"/>
+  <text x="450" y="229" text-anchor="middle" class="heading">Pantalla web</text>
+  <text x="450" y="257" text-anchor="middle" class="body">HTML y JavaScript: muestra formularios y envía datos</text>
+
+  <path class="line" d="M450 286 V320"/>
+  <rect class="box" x="200" y="324" width="500" height="92" rx="12"/>
+  <text x="450" y="359" text-anchor="middle" class="heading">Aplicación FastAPI</text>
+  <text x="450" y="387" text-anchor="middle" class="body">Recibe cada solicitud y la dirige al área correcta</text>
+
+  <path class="line" d="M450 416 V450"/>
+  <rect class="box" x="200" y="454" width="500" height="100" rx="12"/>
+  <text x="450" y="489" text-anchor="middle" class="heading">Rutas de la API</text>
+  <text x="450" y="518" text-anchor="middle" class="body">Inventario · Topología · Reservas · Altas · Consultas</text>
+
+  <path class="line" d="M450 554 V588"/>
+  <rect class="box" x="200" y="592" width="500" height="92" rx="12"/>
+  <text x="450" y="627" text-anchor="middle" class="heading">Estado de la aplicación</text>
+  <text x="450" y="655" text-anchor="middle" class="body">Reúne configuración, catálogo y repositorio de datos</text>
+
+  <path class="line" d="M450 684 V718"/>
+  <rect class="box" x="200" y="722" width="500" height="92" rx="12"/>
+  <text x="450" y="757" text-anchor="middle" class="heading">Repositorio de inventario</text>
+  <text x="450" y="785" text-anchor="middle" class="body">Lee y guarda IPs, reservas, altas y topología</text>
+
+  <path class="line" d="M450 814 V848"/>
+  <rect class="box" x="200" y="852" width="500" height="92" rx="12"/>
+  <text x="450" y="887" text-anchor="middle" class="heading">Conexión a Firestore</text>
+  <text x="450" y="915" text-anchor="middle" class="body">Prepara consultas y cambios en la base de datos</text>
+
+  <path class="line" d="M450 944 V978"/>
+  <rect class="box" x="200" y="982" width="500" height="92" rx="12"/>
+  <text x="450" y="1017" text-anchor="middle" class="heading">Firebase Admin</text>
+  <text x="450" y="1045" text-anchor="middle" class="body">Inicia la conexión autorizada con Google Cloud</text>
+
+  <path class="line" d="M450 1074 V1108"/>
+  <rect class="box" x="200" y="1112" width="500" height="112" rx="12"/>
+  <text x="450" y="1149" text-anchor="middle" class="heading">Cloud Firestore</text>
+  <text x="450" y="1178" text-anchor="middle" class="body">Almacena inventario, altas, operaciones y topología</text>
+
+  <rect class="subbox" x="245" y="1270" width="410" height="90" rx="12"/>
+  <text x="450" y="1305" text-anchor="middle" class="heading">Modo de demostración</text>
+  <text x="450" y="1333" text-anchor="middle" class="body">Puede usar memoria temporal en lugar de Firestore</text>
+  <path class="dashed" d="M655 1290 C760 1250 770 930 700 900"/>
+</svg>
